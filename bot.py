@@ -73,6 +73,13 @@ async def start(message: types.Message):
 # Добавление питомца
 @dp.message_handler(commands=['add_pet'])
 async def add_pet(message: types.Message):
+    user_id = message.from_user.id
+    async with db_pool.acquire() as conn:
+            telegram_id = await conn.execute("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
+    if not telegram_id:
+        await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
+        return
+    
     await message.answer("Введите данные о питомце в формате:\n"
                          "Имя, Дата рождения (ГГГГ-ММ-ДД), Пол (М/Ж), Порода, Цвет, Вес, Стерилизован (Да/Нет), Город, Условия содержания")
     dp.register_message_handler(process_add_pet)
@@ -114,6 +121,11 @@ async def process_add_pet(message: types.Message):
 async def view_pets(message: types.Message):
     try:
         user_id = message.from_user.id
+        async with db_pool.acquire() as conn:
+            telegram_id = await conn.execute("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
+        if not telegram_id:
+            await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
+            return
         async with db_pool.acquire() as conn:
             pets = await conn.fetch(
                 """
@@ -165,12 +177,17 @@ async def view_pets(message: types.Message):
 # Добавление болезни в медицинскую карту
 @dp.message_handler(commands=['add_disease'])
 async def add_disease(message: types.Message):
+    user_id = message.from_user.id
+    async with db_pool.acquire() as conn:
+            telegram_id = await conn.execute("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
+    if not telegram_id:
+        await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
+        return
     await message.answer("Введите данные о болезни в формате:\n"
                          "Имя питомца, Болезнь, Рекомендация")
     dp.register_message_handler(process_add_disease)
 
 async def process_add_disease(message: types.Message):
-
     try:
         data_disease = message.text.split(',')
         if len(data_disease) != 3:
@@ -220,6 +237,12 @@ async def process_add_disease(message: types.Message):
 # Добавление хронической болезни в медицинскую карту
 @dp.message_handler(commands=['add_chronic_diseases'])
 async def add_chronic_diseases(message: types.Message):
+    user_id = message.from_user.id
+    async with db_pool.acquire() as conn:
+            telegram_id = await conn.execute("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
+    if not telegram_id:
+        await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
+        return
     await message.answer("Введите данные о болезни в формате:\n"
                          "Имя питомца, Хроническая болезнь")
     dp.register_message_handler(add_chronic_diseases)
@@ -270,6 +293,12 @@ async def add_chronic_diseases(message: types.Message):
 # Добавление аллергии в медицинскую карту
 @dp.message_handler(commands=['add_allergy'])
 async def add_allergy(message: types.Message):
+    user_id = message.from_user.id
+    async with db_pool.acquire() as conn:
+            telegram_id = await conn.execute("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
+    if not telegram_id:
+        await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
+        return
     await message.answer("Введите данные о болезни в формате:\n"
                          "Имя питомца, Аллергия")
     dp.register_message_handler(add_allergy)
