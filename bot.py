@@ -56,6 +56,7 @@ async def start(message: types.Message):
                     """, telegram_id, name
                 )
                 await message.answer(f"Привет, {name}! Я записал тебя в базу данных.")
+                return
             else:
                 await message.answer(f"С возвращением, {name}!")
 
@@ -65,10 +66,11 @@ async def start(message: types.Message):
                              "/view_pets - показать всех питомцев\n"
                              "/add_chronic_diseases - добавить хроническую болезнь\n"
                              "/add_allergy - добавить аллергию")
-    
+        return
     except Exception as e:
         logger.error(f"Ошибка в команде /start: {e}")
         await message.answer("Произошла ошибка. Попробуйте позже.")
+        return
 
 # Добавление питомца
 @dp.message_handler(commands=['add_pet'])
@@ -111,10 +113,11 @@ async def process_add_pet(message: types.Message):
                 user_id, name, birth_date, sex, breed, color, weight, sterilized, town, keeping
             )
             await message.answer(f"Питомец {name} успешно добавлен!")
-    
+            return
     except Exception as e:
         logger.error(f"Ошибка при добавлении питомца: {e}")
         await message.answer("Произошла ошибка при добавлении питомца. Попробуйте позже.")
+        return
 
 # Просмотр всех питомцев пользователя
 @dp.message_handler(commands=['view_pets'])
@@ -137,6 +140,7 @@ async def view_pets(message: types.Message):
             )
             if not pets:
                 await message.answer("У вас нет питомцев.")
+                return
             else:
                 response = "Ваши питомцы:\n"
                 for pet in pets:
@@ -170,9 +174,11 @@ async def view_pets(message: types.Message):
                         f"Текущая болезнь: {current_disease}, Текущие рекомендации: {current_recommendation}\n\n"
                     )
                 await message.answer(response)
+                return
     except Exception as e:
         logger.error(f"Ошибка при просмотре питомцев: {e}")
         await message.answer("Произошла ошибка при просмотре питомцев. Попробуйте позже.")
+        return
 
 # Добавление болезни в медицинскую карту
 @dp.message_handler(commands=['add_disease'])
@@ -219,6 +225,7 @@ async def process_add_disease(message: types.Message):
                     """, pet_id, diseases_list, recommendations_list
                 )
                 await message.answer(f"Болезнь '{diseases}' и рекомендация '{recommendations}' добавлены для питомца с именем {name}.")
+                return
             else:
                 await conn.execute(
                 """
@@ -229,10 +236,11 @@ async def process_add_disease(message: types.Message):
                 """, diseases, recommendations, pet_id
                 )
                 await message.answer(f"Болезнь '{diseases}' и рекомендация '{recommendations}' добавлены для питомца с именем {name}.")
-
+                return
     except Exception as e:
         logger.error(f"Ошибка при добавлении болезни: {e}")
         await message.answer("Произошла ошибка при добавлении болезни. Попробуйте позже.")
+        return
 
 # Добавление хронической болезни в медицинскую карту
 @dp.message_handler(commands=['add_chronic_diseases'])
@@ -245,19 +253,16 @@ async def add_chronic_diseases(message: types.Message):
         return
     await message.answer("Введите данные о болезни в формате:\n"
                          "Имя питомца, Хроническая болезнь")
-    dp.register_message_handler(add_chronic_diseases)
+    dp.register_message_handler(process_add_chronic_diseases)
 
-async def add_chronic_diseases(message: types.Message):
+async def process_add_chronic_diseases(message: types.Message):
     try:
         data_chronic = message.text.split(',')
         if len(data_chronic) != 2:
             await message.answer("Ошибка: необходимо ввести 2 поля (Имя питомца, Хроническая болезнь) через запятую.")
             return
-
         name, chronic_diseases = [x.strip() for x in data_chronic]
-
         telegram_id = message.from_user.id
-
         async with db_pool.acquire() as conn:
             user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
             if user_id == None:
@@ -276,6 +281,7 @@ async def add_chronic_diseases(message: types.Message):
                     """, pet_id, chronic_diseases
                 )
                 await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.")
+                return
             else:
                 await conn.execute(
                 """
@@ -285,10 +291,11 @@ async def add_chronic_diseases(message: types.Message):
                 """, chronic_diseases, pet_id
                 )
                 await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.")
-
+                return
     except Exception as e:
         logger.error(f"Ошибка при добавлении хронической болезни: {e}")
         await message.answer("Произошла ошибка при добавлении хронической болезни. Попробуйте позже.")
+        return
 
 # Добавление аллергии в медицинскую карту
 @dp.message_handler(commands=['add_allergy'])
@@ -301,19 +308,16 @@ async def add_allergy(message: types.Message):
         return
     await message.answer("Введите данные о болезни в формате:\n"
                          "Имя питомца, Аллергия")
-    dp.register_message_handler(add_allergy)
+    dp.register_message_handler(process_add_allergy)
 
-async def add_allergy(message: types.Message):
+async def process_add_allergy(message: types.Message):
     try:
         data_allergy = message.text.split(',')
         if len(data_allergy) != 2:
             await message.answer("Ошибка: необходимо ввести 2 поля (Имя питомца, Аллергия) через запятую.")
             return
-
         name, allergy = [x.strip() for x in data_allergy]
-
         telegram_id = message.from_user.id
-
         async with db_pool.acquire() as conn:
             user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
             if user_id == None:
@@ -332,6 +336,7 @@ async def add_allergy(message: types.Message):
                     """, pet_id, allergy
                 )
                 await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.")
+                return
             else:
                 await conn.execute(
                 """
@@ -341,21 +346,18 @@ async def add_allergy(message: types.Message):
                 """, allergy, pet_id
                 )
                 await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.")
-
-
+                return
     except Exception as e:
         logger.error(f"Ошибка при добавлении аллергии: {e}")
         await message.answer("Произошла ошибка при добавлении аллергии. Попробуйте позже.")
+        return
 
 # Запуск бота
 if __name__ == '__main__':
-
     async def on_startup(dp):
         global db_pool
         db_pool = await create_db_pool()
         print("Бот инициализирован")
-
     async def on_shutdown(dp):
         await db_pool.close()
-
     executor.start_polling(dp, on_startup=on_startup, on_shutdown=on_shutdown)
