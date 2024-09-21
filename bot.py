@@ -1,147 +1,208 @@
+import os
+import asyncpg
 import logging
-import asyncio
-from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.date import DateTrigger
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ParseMode
+from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram.utils import executor
+from dotenv import load_dotenv
+from datetime import datetime  # Добавляем импорт библиотеки datetime
 
-# Логирование для отслеживания ошибок
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Настраиваем базовый логгер
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Создаем планировщик
-scheduler = BackgroundScheduler()
-scheduler.start()
+load_dotenv()
 
-# Функция для отправки напоминания
-async def send_reminder(chat_id, text, bot):
-    await bot.send_message(chat_id=chat_id, text=f"Напоминание: {text}")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Обертка для запуска асинхронных функций в синхронном контексте
-def run_async_task(chat_id, text, bot):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(send_reminder(chat_id, text, bot))
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(bot)
+dp.middleware.setup(LoggingMiddleware())
 
-# Обработчик команды /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Используйте команду /remind, чтобы добавить напоминание.")
+# Подключаемся к базе данных
+async def create_db_pool():
+    try:
+        pool = await asyncpg.create_pool(DATABASE_URL)
+        async with pool.acquire() as conn:
+            await conn.execute('SELECT 1')
+        print("Подключение к базе данных успешно")
+        return pool
+    except Exception as e:
+        logger.error(f"Ошибка подключения к базе данных: {e}")
+        raise
 
-# Вызов выбора даты
-async def remind(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"day_{i}") for i in range(1, 32)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите день:", reply_markup=reply_markup)
+db_pool = None
 
-# Обработка выбора дня
-async def day_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    day = int(query.data.split("_")[1])
+# Команда /start
+@dp.message_handler(commands=['start'])
+async def start(message: types.Message):
+    try:
+        telegram_id = message.from_user.id  # Получаем Telegram ID пользователя
+        name = message.from_user.first_name  # Получаем имя пользователя (first_name)
+
+        # Подключаемся к базе данных и вставляем пользователя в таблицу users, если его ещё нет
+        async with db_pool.acquire() as conn:
+            user_exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM users WHERE telegram_id = $1)", telegram_id
+            )
+
+            if not user_exists:
+                await conn.execute(
+                    """
+                    INSERT INTO users (telegram_id, name) 
+                    VALUES ($1, $2)
+                    """, telegram_id, name
+                )
+                await message.answer(f"Привет, {name}! Я записал тебя в базу данных.")
+            else:
+                await message.answer(f"С возвращением, {name}!")
+
+        await message.answer("Используй команды:\n"
+                             "/add_pet - добавить питомца\n"
+                             "/add_disease - добавить болезнь\n"
+                             "/view_pets - показать всех питомцев")
     
-    # Сохраните выбранный день
-    context.user_data['day'] = day
+    except Exception as e:
+        logger.error(f"Ошибка в команде /start: {e}")
+        await message.answer("Произошла ошибка. Попробуйте позже.")
 
-    # Запрос времени
-    await query.answer()
-    keyboard = [[InlineKeyboardButton(f"{hour:02d}:00", callback_data=f"hour_{hour}") for hour in range(24)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.message.reply_text("Выберите час:", reply_markup=reply_markup)
+# Добавление питомца
+@dp.message_handler(commands=['add_pet'])
+async def add_pet(message: types.Message):
+    await message.answer("Введите данные о питомце в формате:\n"
+                         "Имя, Дата рождения (ГГГГ-ММ-ДД), Пол (М/Ж), Порода, Цвет, Вес, Стерилизован (Да/Нет), Город, Условия содержания")
+    dp.register_message_handler(process_add_pet)
 
-# Обработка выбора часа
-async def hour_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    hour = int(query.data.split("_")[1])
+async def process_add_pet(message: types.Message):
+    try:
+        user_id = message.from_user.id
+        data = message.text.split(',')
+        if len(data) != 9:
+            await message.answer("Ошибка: необходимо ввести все 9 полей через запятую.")
+            return
+
+        name, birth_date_str, sex, breed, color, weight, sterilized, town, keeping = [x.strip() for x in data]
+        weight = float(weight)
+
+        # Преобразуем строку даты рождения в объект datetime.date
+        try:
+            birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            await message.answer("Ошибка: неверный формат даты. Используйте формат ГГГГ-ММ-ДД.")
+            return
+
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO pets (user_id, name, date_birth, sex, breed, color, weight, sterilized, town, keeping)
+                VALUES ((SELECT user_id FROM users WHERE telegram_id = $1), $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                """,
+                user_id, name, birth_date, sex, breed, color, weight, sterilized, town, keeping
+            )
+            await message.answer(f"Питомец {name} успешно добавлен!")
     
-    # Сохраните выбранный час
-    context.user_data['hour'] = hour
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении питомца: {e}")
+        await message.answer("Произошла ошибка при добавлении питомца. Попробуйте позже.")
 
-    # Запрос повторений
-    await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("1 раз", callback_data="repeat_1"),
-         InlineKeyboardButton("Каждый день", callback_data="repeat_daily"),
-         InlineKeyboardButton("Каждую неделю", callback_data="repeat_weekly"),
-         InlineKeyboardButton("Каждый месяц", callback_data="repeat_monthly")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.message.reply_text("Выберите повторение:", reply_markup=reply_markup)
+# Просмотр всех питомцев пользователя
+@dp.message_handler(commands=['view_pets'])
+async def view_pets(message: types.Message):
+    try:
+        user_id = message.from_user.id
+        async with db_pool.acquire() as conn:
+            pets = await conn.fetch(
+                """
+                SELECT p.name, p.date_birth, p.breed, p.color, p.weight
+                FROM pets p
+                JOIN users u ON p.user_id = u.user_id
+                WHERE u.telegram_id = $1
+                """, user_id
+            )
+            
+            if not pets:
+                await message.answer("У вас нет питомцев.")
+            else:
+                response = "Ваши питомцы:\n"
+                for pet in pets:
+                    
+                    disease_curent = await conn.fetch(
+                        """
+                        SELECT m.allergy, m.chronic_diseases, m.diseases[counter], m.recommendations[counter]
+                        FROM medical_card m
+                        JOIN pets p ON m.pet_id = p.pet_id
+                        WHERE u.telegram_id = $1
+                        """, user_id
+                        )
 
-# Обработка выбора повторений
-async def repeat_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    repeat = query.data.split("_")[1]
-    
-    # Получение сохраненных данных
-    day = context.user_data.get('day')
-    hour = context.user_data.get('hour')
+                    response += f"Имя: {pet['name']}, Дата рождения: {pet['date_birth']}, Порода: {pet['breed']}, Цвет: {pet['color']}, Вес: {pet['weight']} кг, 
+                    Аллергия: {disease_curent['allergy']}, Хронические болезни: {disease_curent[chronic_diseases]}, Текущая болезнь: {disease_curent[diseases[counter]]}, 
+                    Текущие рекомендации: {disease_curent[recommendations[counter]]}\n\n"
+                await message.answer(response)
+    except Exception as e:
+        logger.error(f"Ошибка при просмотре питомцев: {e}")
+        await message.answer("Произошла ошибка при просмотре питомцев. Попробуйте позже.")
 
-    # Получение текущей даты
-    now = datetime.now()
-    reminder_date = datetime(now.year, now.month, day, hour)
+# Добавление болезни в медицинскую карту
+@dp.message_handler(commands=['add_disease'])
+async def add_disease(message: types.Message):
+    await message.answer("Введите данные о болезни в формате:\n"
+                         "Имя питомца, Болезнь, Рекомендация")
+    dp.register_message_handler(process_add_disease)
 
-    # Если время уже прошло, устанавливаем на следующий день
-    if reminder_date < now:
-        reminder_date += timedelta(days=1)
+async def process_add_disease(message: types.Message):
 
-    # Устанавливаем напоминание
-    if repeat == 'daily':
-        scheduler.add_job(
-            run_async_task,
-            trigger='cron',
-            hour=hour,
-            minute=0,
-            day='*',
-            month='*',
-            year='*',
-            kwargs={'chat_id': update.effective_chat.id, 'text': f"Напоминание на {reminder_date}", 'bot': context.bot},
-            replace_existing=True
-        )
-    elif repeat == 'weekly':
-        scheduler.add_job(
-            run_async_task,
-            trigger='cron',
-            hour=hour,
-            minute=0,
-            day='*',
-            month='*',
-            day_of_week='*',  # Каждый день недели
-            kwargs={'chat_id': update.effective_chat.id, 'text': f"Напоминание на {reminder_date}", 'bot': context.bot},
-            replace_existing=True
-        )
-    elif repeat == 'monthly':
-        scheduler.add_job(
-            run_async_task,
-            trigger='cron',
-            hour=hour,
-            minute=0,
-            day=day,  # Устанавливаем на выбранный день месяца
-            kwargs={'chat_id': update.effective_chat.id, 'text': f"Напоминание на {reminder_date}", 'bot': context.bot},
-            replace_existing=True
-        )
-    else:
-        scheduler.add_job(
-            run_async_task,
-            trigger=DateTrigger(run_date=reminder_date),
-            kwargs={'chat_id': update.effective_chat.id, 'text': f"Напоминание на {reminder_date}", 'bot': context.bot},
-            replace_existing=True
-        )
+    try:
+        data_disease = message.text.split(',')
+        if len(data_disease) != 3:
+            await message.answer("Ошибка: необходимо ввести 3 поля (Имя питомца, Болезнь, Рекомендация) через запятую.")
+            return
 
-    await query.answer()
-    await query.message.reply_text(f"Напоминание установлено на {reminder_date} с повторением: {repeat}.")
+        name, diseases, recommendations = [x.strip() for x in data_disease]
 
-# Запуск приложения бота
+        telegram_id = message.from_user.id
+
+        diseases_list = [diseases]
+        recommendations_list = [recommendations]
+
+        async with db_pool.acquire() as conn:
+            user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
+            pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
+            pet_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM medical_card WHERE pet_id = $1)", pet_id)
+            if not pet_exists:
+                await conn.execute(
+                    """
+                    INSERT INTO medical_card (pet_id, diseases, recommendations)
+                    VALUES ($1, $2, $3)
+                    """, pet_id, diseases_list, recommendations_list
+                )
+                await message.answer(f"Болезнь '{diseases}' и рекомендация '{recommendations}' добавлены для питомца с именем {name}.")
+            else:
+                await conn.execute(
+                """
+                UPDATE medical_card
+                SET diseases = array_append(diseases, $1),
+                    recommendations = array_append(recommendations, $2)
+                WHERE pet_id = $3
+                """, diseases, recommendations, pet_id
+                )
+                await message.answer(f"Болезнь '{diseases}' и рекомендация '{recommendations}' добавлены для питомца с именем {name}.")
+
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении болезни: {e}")
+        await message.answer("Произошла ошибка при добавлении болезни. Попробуйте позже.")
+
+# Запуск бота
 if __name__ == '__main__':
-    app = ApplicationBuilder().token('7629897895:AAHAiHvZA5rk8UKfilMeLyYZR7ckrpGo3DQ').build()
 
-    # Добавляем обработчики команд и колбеков
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("remind", remind))
-    app.add_handler(CallbackQueryHandler(day_selected, pattern=r'^day_'))
-    app.add_handler(CallbackQueryHandler(hour_selected, pattern=r'^hour_'))
-    app.add_handler(CallbackQueryHandler(repeat_selected, pattern=r'^repeat_'))
+    async def on_startup(dp):
+        global db_pool
+        db_pool = await create_db_pool()
+        print("Бот инициализирован")
 
-    # Запуск опроса сообщений
-    app.run_polling()
+    async def on_shutdown(dp):
+        await db_pool.close()
+
+    executor.start_polling(dp, on_startup=on_startup, on_shutdown=on_shutdown)

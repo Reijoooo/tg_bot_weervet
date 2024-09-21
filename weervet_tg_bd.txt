@@ -5,7 +5,7 @@ CREATE TABLE users (
     name VARCHAR(100)
 );
 
-======================================================================================
+
 
 CREATE TABLE pets (
     user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
@@ -43,7 +43,7 @@ AFTER INSERT ON pets
 FOR EACH ROW
 EXECUTE FUNCTION update_users_pets();
 
-======================================================================================
+
 
 CREATE TABLE medical_card (
     pet_id INT REFERENCES pets(pet_id) ON DELETE CASCADE,
@@ -79,7 +79,6 @@ FOR EACH ROW
 EXECUTE FUNCTION add_disease_and_recommendation();
 
 
-======================================================================================
 
 CREATE TABLE shedule (
     pet_id INT REFERENCES pets(pet_id) ON DELETE CASCADE,
@@ -97,7 +96,9 @@ INSERT INTO users(telegram_id, name) VALUES(12345, 'TestName');
 
 INSERT INTO pets(user_id, name, date_birth, sex, breed, color, weight, sterilized, town, keeping) VALUES(1, 'Bim', '2015-10-25', 'М', 'Лабрадор', 'Белый', 50, 'Нет', 'Кемерово', 'Квартира');
 
-INSERT INTO medical_card(pet_id, chronic_diseases, diseases, recommendations) VALUES(4, 'Дисплазия тазобедренных суставов', '{Педикулёз}', '{Капли на холку}');
+INSERT INTO medical_card(pet_id, chronic_diseases, diseases,
+ recommendations) VALUES(4, 'Дисплазия тазобедренных суставов',
+  '{Педикулёз}', '{Капли на холку}');
 
 UPDATE medical_card 
 SET diseases = array_append(diseases, 'Спид'), 
@@ -111,3 +112,8 @@ WHERE pet_id = 4;
 UPDATE medical_card 
 SET recommendations = array_append(recommendations, 'Чаще гулять')
 WHERE pet_id = 4;
+
+drop table users CASCADE;
+drop table shedule CASCADE;
+drop table pets CASCADE;
+drop table medical_card CASCADE;
