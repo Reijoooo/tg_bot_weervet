@@ -1,0 +1,40 @@
+CREATE TABLE users (
+    user_id SERIAL PRIMARY KEY,
+    telegram_id BIGINT UNIQUE,
+    pet_ids INT[],
+    name VARCHAR(100)
+);
+
+
+
+
+
+
+CREATE TABLE pets (
+
+);
+
+
+
+
+
+
+
+
+
+CREATE TABLE medical_card (
+
+);
+
+
+
+
+
+
+
+
+
+
+CREATE TABLE shedule (
+
+);
