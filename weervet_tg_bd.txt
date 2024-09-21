@@ -5,36 +5,102 @@ CREATE TABLE users (
     name VARCHAR(100)
 );
 
-
-
-
-
-
 CREATE TABLE pets (
-
+    user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+    pet_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    date_birth DATE NOT NULL,
+    sex CHAR(1) CHECK (sex IN ('М', 'Ж')) NOT NULL,
+    breed VARCHAR(50) NOT NULL,
+    color VARCHAR(50) NOT NULL,
+    weight FLOAT NOT NULL,
+    sterilized CHAR(3) CHECK (sterilized IN ('Да', 'Нет')) NOT NULL,
+    chip_number VARCHAR(20),
+    chip_place VARCHAR(100),
+    town VARCHAR(100) NOT NULL,
+    keeping VARCHAR(100) NOT NULL,
+    special_signs VARCHAR(250),
+    photo BYTEA
 );
 
+-- Функция для добавления pet_id в таблицу user_id
 
+CREATE OR REPLACE FUNCTION update_users_pets()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Обновляем поле pet_ids у хозяина, добавляя новый ID питомца в массив
+    UPDATE users
+    SET pet_ids = array_append(pet_ids, NEW.id)  -- Добавляем id питомца в массив
+    WHERE id = NEW.user_id;
 
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
+-- Триггер для добавления pet_id в таблицу user_id
 
-
-
-
+CREATE TRIGGER update_users_pets
+AFTER INSERT ON pets
+FOR EACH ROW
+EXECUTE FUNCTION update_users_pets();
 
 CREATE TABLE medical_card (
-
+    pet_id INT REFERENCES pets(pet_id) ON DELETE CASCADE,
+    allergy VARCHAR(250),
+    chronic_diseases VARCHAR(250),
+    disease_moment VARCHAR(250),
+    recomedations_moment VARCHAR(500),
+    ex_diseases TEXT[],
+    ex_recomedations TEXT[]
 );
 
+CREATE OR REPLACE FUNCTION update_ex_diseases()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Обновляем поле related_data, собирая все значения data из других строк в массив
+    UPDATE my_table
+    SET related_data = (
+        SELECT array_agg(disease_moment) -- Собираем все значения data в массив
+        FROM medical_card
+        WHERE id != NEW.id     -- Не включаем текущее значение
+    )
+    WHERE id = NEW.id;         -- Обновляем только ту строку, которая была изменена или добавлена
 
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
+CREATE TRIGGER trigger_update_ex_diseases
+AFTER INSERT OR UPDATE ON medical_card
+FOR EACH ROW
+EXECUTE FUNCTION update_ex_diseases();
 
+CREATE OR REPLACE FUNCTION update_ex_recomedations()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Обновляем поле related_data, собирая все значения data из других строк в массив
+    UPDATE my_table
+    SET related_data = (
+        SELECT array_agg(recomedations_moment) -- Собираем все значения data в массив
+        FROM medical_card
+        WHERE id != NEW.id     -- Не включаем текущее значение
+    )
+    WHERE id = NEW.id;         -- Обновляем только ту строку, которая была изменена или добавлена
 
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
-
-
-
+CREATE TRIGGER trigger_update_ex_recomedations
+AFTER INSERT OR UPDATE ON medical_card
+FOR EACH ROW
+EXECUTE FUNCTION update_ex_recomedations();
 
 CREATE TABLE shedule (
-
+    pet_id INT REFERENCES pets(pet_id) ON DELETE CASCADE,
+    drug VARCHAR(100) NOT NULL,
+    date DATE NOT NULL,
+    time TIME NOT NULL,
+    replay_per_day INT NOT NULL,
+    duration INT NOT NULL
 );
