@@ -62,7 +62,9 @@ async def start(message: types.Message):
         await message.answer("Используй команды:\n"
                              "/add_pet - добавить питомца\n"
                              "/add_disease - добавить болезнь\n"
-                             "/view_pets - показать всех питомцев")
+                             "/view_pets - показать всех питомцев\n"
+                             "/add_chronic_diseases - добавить хроническую болезнь\n"
+                             "/add_allergy - добавить аллергию")
     
     except Exception as e:
         logger.error(f"Ошибка в команде /start: {e}")
@@ -115,31 +117,46 @@ async def view_pets(message: types.Message):
         async with db_pool.acquire() as conn:
             pets = await conn.fetch(
                 """
-                SELECT p.name, p.date_birth, p.breed, p.color, p.weight
+                SELECT p.name, p.date_birth, p.breed, p.color, p.weight, p.pet_id
                 FROM pets p
                 JOIN users u ON p.user_id = u.user_id
                 WHERE u.telegram_id = $1
                 """, user_id
             )
-            
             if not pets:
                 await message.answer("У вас нет питомцев.")
             else:
                 response = "Ваши питомцы:\n"
                 for pet in pets:
-                    
-                    disease_curent = await conn.fetch(
+                    disease_curent = await conn.fetchrow(
                         """
-                        SELECT m.allergy, m.chronic_diseases, m.diseases[counter], m.recommendations[counter]
-                        FROM medical_card m
-                        JOIN pets p ON m.pet_id = p.pet_id
-                        WHERE u.telegram_id = $1
-                        """, user_id
-                        )
+                        SELECT 
+                            allergy, 
+                            chronic_diseases, 
+                            diseases[counter] AS current_disease, 
+                            recommendations[counter] AS current_recommendation
+                        FROM 
+                            medical_card
+                        WHERE
+                            pet_id = $1
+                        """, pet['pet_id']
+                )
+                    # Если медицинская карта есть
+                    if disease_curent:
+                        allergy = disease_curent['allergy'] if disease_curent['allergy'] else "Нет"
+                        chronic_diseases = disease_curent['chronic_diseases'] if disease_curent['chronic_diseases'] else "Нет"
+                        current_disease = disease_curent['current_disease'] if disease_curent['current_disease'] else "Нет"
+                        current_recommendation = disease_curent['current_recommendation'] if disease_curent['current_recommendation'] else "Нет"
+                    else:
+                        allergy = chronic_diseases = current_disease = current_recommendation = "Нет данных"
 
-                    response += f"Имя: {pet['name']}, Дата рождения: {pet['date_birth']}, Порода: {pet['breed']}, Цвет: {pet['color']}, Вес: {pet['weight']} кг, 
-                    Аллергия: {disease_curent['allergy']}, Хронические болезни: {disease_curent[chronic_diseases]}, Текущая болезнь: {disease_curent[diseases[counter]]}, 
-                    Текущие рекомендации: {disease_curent[recommendations[counter]]}\n\n"
+                    # Формируем строку ответа для каждого питомца
+                    response += (
+                        f"Имя: {pet['name']}, Дата рождения: {pet['date_birth']}, Порода: {pet['breed']}, "
+                        f"Цвет: {pet['color']}, Вес: {pet['weight']} кг, "
+                        f"Аллергия: {allergy}, Хронические болезни: {chronic_diseases}, "
+                        f"Текущая болезнь: {current_disease}, Текущие рекомендации: {current_recommendation}\n\n"
+                    )
                 await message.answer(response)
     except Exception as e:
         logger.error(f"Ошибка при просмотре питомцев: {e}")
@@ -169,7 +186,13 @@ async def process_add_disease(message: types.Message):
 
         async with db_pool.acquire() as conn:
             user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
+            if user_id == None:
+                await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
+                return
             pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
+            if pet_id == None:
+                await message.answer(f"Такого питомца не существует")
+                return
             pet_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM medical_card WHERE pet_id = $1)", pet_id)
             if not pet_exists:
                 await conn.execute(
@@ -193,6 +216,107 @@ async def process_add_disease(message: types.Message):
     except Exception as e:
         logger.error(f"Ошибка при добавлении болезни: {e}")
         await message.answer("Произошла ошибка при добавлении болезни. Попробуйте позже.")
+
+# Добавление хронической болезни в медицинскую карту
+@dp.message_handler(commands=['add_chronic_diseases'])
+async def add_chronic_diseases(message: types.Message):
+    await message.answer("Введите данные о болезни в формате:\n"
+                         "Имя питомца, Хроническая болезнь")
+    dp.register_message_handler(add_chronic_diseases)
+
+async def add_chronic_diseases(message: types.Message):
+    try:
+        data_chronic = message.text.split(',')
+        if len(data_chronic) != 2:
+            await message.answer("Ошибка: необходимо ввести 2 поля (Имя питомца, Хроническая болезнь) через запятую.")
+            return
+
+        name, chronic_diseases = [x.strip() for x in data_chronic]
+
+        telegram_id = message.from_user.id
+
+        async with db_pool.acquire() as conn:
+            user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
+            if user_id == None:
+                await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
+                return
+            pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
+            if pet_id == None:
+                await message.answer(f"Такого питомца не существует")
+                return
+            pet_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM medical_card WHERE pet_id = $1)", pet_id)
+            if not pet_exists:
+                await conn.execute(
+                    """
+                    INSERT INTO medical_card (pet_id, chronic_diseases)
+                    VALUES ($1, $2)
+                    """, pet_id, chronic_diseases
+                )
+                await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.")
+            else:
+                await conn.execute(
+                """
+                UPDATE medical_card
+                SET chronic_diseases = $1
+                WHERE pet_id = $2
+                """, chronic_diseases, pet_id
+                )
+                await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.")
+
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении хронической болезни: {e}")
+        await message.answer("Произошла ошибка при добавлении хронической болезни. Попробуйте позже.")
+
+# Добавление аллергии в медицинскую карту
+@dp.message_handler(commands=['add_allergy'])
+async def add_allergy(message: types.Message):
+    await message.answer("Введите данные о болезни в формате:\n"
+                         "Имя питомца, Аллергия")
+    dp.register_message_handler(add_allergy)
+
+async def add_allergy(message: types.Message):
+    try:
+        data_allergy = message.text.split(',')
+        if len(data_allergy) != 2:
+            await message.answer("Ошибка: необходимо ввести 2 поля (Имя питомца, Аллергия) через запятую.")
+            return
+
+        name, allergy = [x.strip() for x in data_allergy]
+
+        telegram_id = message.from_user.id
+
+        async with db_pool.acquire() as conn:
+            user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
+            if user_id == None:
+                await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
+                return
+            pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
+            if pet_id == None:
+                await message.answer(f"Такого питомца не существует")
+                return
+            pet_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM medical_card WHERE pet_id = $1)", pet_id)
+            if not pet_exists:
+                await conn.execute(
+                    """
+                    INSERT INTO medical_card (pet_id, allergy)
+                    VALUES ($1, $2)
+                    """, pet_id, allergy
+                )
+                await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.")
+            else:
+                await conn.execute(
+                """
+                UPDATE medical_card
+                SET allergy = $1
+                WHERE pet_id = $2
+                """, allergy, pet_id
+                )
+                await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.")
+
+
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении аллергии: {e}")
+        await message.answer("Произошла ошибка при добавлении аллергии. Попробуйте позже.")
 
 # Запуск бота
 if __name__ == '__main__':
