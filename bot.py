@@ -349,18 +349,18 @@ async def process_add_allergy(message: types.Message, state: FSMContext):
         data_allergy = message.text.split(',')
         if len(data_allergy) != 2:
             await message.answer("Ошибка: необходимо ввести 2 поля (Имя питомца, Аллергия) через запятую.")
-            return
+            await state.finish()
         name, allergy = [x.strip() for x in data_allergy]
         telegram_id = message.from_user.id
         async with db_pool.acquire() as conn:
             user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
             if user_id == None:
                 await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-                return
+                await state.finish()
             pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
             if pet_id == None:
                 await message.answer(f"Такого питомца не существует")
-                return
+                await state.finish()
             pet_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM medical_card WHERE pet_id = $1)", pet_id)
             if not pet_exists:
                 await conn.execute(
@@ -370,6 +370,7 @@ async def process_add_allergy(message: types.Message, state: FSMContext):
                     """, pet_id, allergy
                 )
                 await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.")
+                await state.finish()
             else:
                 await conn.execute(
                 """
