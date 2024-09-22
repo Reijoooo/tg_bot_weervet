@@ -345,7 +345,6 @@ async def add_allergy(message: types.Message, state: FSMContext):
 @dp.message_handler(state=MedicalCardForm.allergy)
 async def process_add_allergy(message: types.Message, state: FSMContext):
     try:
-        print("Я в try аллергии")
         data_allergy = message.text.split(',')
         if len(data_allergy) != 2:
             await message.answer("Ошибка: необходимо ввести 2 поля (Имя питомца, Аллергия) через запятую.")
