@@ -50,7 +50,7 @@ class MedicalCardForm(StatesGroup):
 
 class PetsForm(StatesGroup):
     add_pet = State()
-
+    view_pets = State()
 
 # Команда /start
 @dp.message_handler(commands=['start'])
@@ -138,14 +138,15 @@ async def process_add_pet(message: types.Message, state: FSMContext):
 
 # Просмотр всех питомцев пользователя
 @dp.message_handler(commands=['view_pets'])
-async def view_pets(message: types.Message):
+@dp.message_handler(state=PetsForm.view_pets)
+async def process_view_pets(message: types.Message, state: FSMContext):
     try:
         user_id = message.from_user.id
         async with db_pool.acquire() as conn:
             telegram_id = await conn.fetchval("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
         if not telegram_id:
             await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-            return
+            await state.finish()
         async with db_pool.acquire() as conn:
             pets = await conn.fetch(
                 """
@@ -157,7 +158,7 @@ async def view_pets(message: types.Message):
             )
             if not pets:
                 await message.answer("У вас нет питомцев.")
-                return
+                await state.finish()
             else:
                 response = "Ваши питомцы:\n"
                 for pet in pets:
@@ -191,11 +192,11 @@ async def view_pets(message: types.Message):
                         f"Текущая болезнь: {current_disease}, Текущие рекомендации: {current_recommendation}\n\n"
                     )
                 await message.answer(response)
-                return
+                await state.finish()
     except Exception as e:
         logger.error(f"Ошибка при просмотре питомцев: {e}")
         await message.answer("Произошла ошибка при просмотре питомцев. Попробуйте позже.")
-        return
+        await state.finish()
 
 # Добавление болезни в медицинскую карту
 @dp.message_handler(commands=['add_disease'])
