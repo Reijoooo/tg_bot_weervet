@@ -94,6 +94,10 @@ CREATE TABLE shedule (
 ALTER TABLE medical_card
 ALTER COLUMN allergy TYPE VARCHAR(250),
 ALTER COLUMN chronic_diseases TYPE VARCHAR(250);
+======================================================================================как-то иначе меняется check
+ALTER TABLE pets
+ALTER COLUMN sex TYPE CHAR(1) CHECK (sex IN ('М', 'м', 'M', 'm', 'Ж', 'ж', 'F', 'f')) NOT NULL,
+ALTER COLUMN sterilized CHAR(3) CHECK (sterilized IN ('Да', 'да', 'Yes', 'yes', 'Нет', 'нет', 'No', 'no')) NOT NULL;
 ======================================================================================
 
 INSERT INTO users(telegram_id, name) VALUES(12345, 'TestName');

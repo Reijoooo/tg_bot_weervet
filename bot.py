@@ -111,15 +111,16 @@ async def process_add_pet(message: types.Message, state: FSMContext):
         data = message.text.split(',')
         if len(data) != 9:
             await message.answer("Ошибка: необходимо ввести все 9 полей через запятую.")
-
+            await state.finish()
         name, birth_date_str, sex, breed, color, weight, sterilized, town, keeping = [x.strip() for x in data]
         weight = float(weight)
 
         # Преобразуем строку даты рождения в объект datetime.date
         try:
             birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
-        except ValueError:
-            await message.answer("Ошибка: неверный формат даты. Используйте формат ГГГГ-ММ-ДД.")
+        except ValueError as ve:
+            logger.error(f"Ошибка преобразования даты: {ve}")
+            await message.answer("Ошибка: неверный формат даты. Пожалуйста, используйте формат ГГГГ-ММ-ДД.")
 
         async with db_pool.acquire() as conn:
             await conn.execute(
@@ -186,12 +187,17 @@ async def process_view_pets(message: types.Message, state: FSMContext):
 
                     # Формируем строку ответа для каждого питомца
                     response += (
-                        f"Имя: {pet['name']}, Дата рождения: {pet['date_birth']}, Порода: {pet['breed']}, "
-                        f"Цвет: {pet['color']}, Вес: {pet['weight']} кг, "
-                        f"Аллергия: {allergy}, Хронические болезни: {chronic_diseases}, "
-                        f"Текущая болезнь: {current_disease}, Текущие рекомендации: {current_recommendation}\n\n"
+                        f"<b>Имя:</b> {pet['name']}\n"
+                        f"<b>Дата рождения:</b> {pet['date_birth']}\n"
+                        f"<b>Порода:</b> {pet['breed']}\n"
+                        f"<b>Цвет:</b> {pet['color']}\n"
+                        f"<b>Вес:</b> {pet['weight']} кг\n"
+                        f"<b>Аллергия:</b> {allergy}\n"
+                        f"<b>Хронические болезни:</b> {chronic_diseases}\n"
+                        f"<b>Текущая болезнь:</b> {current_disease}\n"
+                        f"<b>Рекомендации:</b> {current_recommendation}\n\n"
                     )
-                await message.answer(response)
+                await message.answer(response, parse_mode=ParseMode.HTML)
                 await state.finish()
     except Exception as e:
         logger.error(f"Ошибка при просмотре питомцев: {e}")
@@ -218,7 +224,7 @@ async def process_add_disease(message: types.Message, state: FSMContext):
         data_disease = message.text.split(',')
         if len(data_disease) != 3:
             await message.answer("Ошибка: необходимо ввести 3 поля (Имя питомца, Болезнь, Рекомендация) через запятую.")
-
+            await state.finish()
         name, diseases, recommendations = [x.strip() for x in data_disease]
 
         telegram_id = message.from_user.id
@@ -282,18 +288,18 @@ async def process_add_chronic_diseases(message: types.Message, state: FSMContext
         data_chronic = message.text.split(',')
         if len(data_chronic) != 2:
             await message.answer("Ошибка: необходимо ввести 2 поля (Имя питомца, Хроническая болезнь) через запятую.")
-            return
+            await state.finish()
         name, chronic_diseases = [x.strip() for x in data_chronic]
         telegram_id = message.from_user.id
         async with db_pool.acquire() as conn:
             user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
             if user_id == None:
                 await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-                return
+                await state.finish()
             pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
             if pet_id == None:
                 await message.answer(f"Такого питомца не существует")
-                return
+                await state.finish()
             pet_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM medical_card WHERE pet_id = $1)", pet_id)
             if not pet_exists:
                 await conn.execute(
@@ -303,6 +309,7 @@ async def process_add_chronic_diseases(message: types.Message, state: FSMContext
                     """, pet_id, chronic_diseases
                 )
                 await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.")
+                await state.finish()
             else:
                 await conn.execute(
                 """
