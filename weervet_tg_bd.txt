@@ -91,6 +91,10 @@ CREATE TABLE shedule (
 
 
 ======================================================================================
+ALTER TABLE medical_card
+ALTER COLUMN allergy TYPE VARCHAR(250),
+ALTER COLUMN chronic_diseases TYPE VARCHAR(250);
+======================================================================================
 
 INSERT INTO users(telegram_id, name) VALUES(12345, 'TestName');
 
