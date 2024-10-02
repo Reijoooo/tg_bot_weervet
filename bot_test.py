@@ -2,7 +2,7 @@ import os
 import asyncpg
 import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ParseMode
+from aiogram.types import ParseMode, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
 from aiogram.utils import executor
 from dotenv import load_dotenv
@@ -52,6 +52,19 @@ class PetsForm(StatesGroup):
     add_pet = State()
     view_pets = State()
 
+# Создаем инлайн-клавиатуру для выбора опций
+def get_main_menu():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        InlineKeyboardButton(text="Добавить питомца", callback_data="add_pet"),
+        InlineKeyboardButton(text="Показать питомцев", callback_data="view_pets"),
+        InlineKeyboardButton(text="Добавить болезнь", callback_data="add_disease"),
+        InlineKeyboardButton(text="Добавить хроническую болезнь", callback_data="add_chronic_disease"),
+        InlineKeyboardButton(text="Добавить аллергию", callback_data="add_allergy"),
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
 # Команда /start
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
@@ -73,53 +86,71 @@ async def start(message: types.Message):
                     """, telegram_id, name
                 )
                 await message.answer(f"Привет, {name}! Я записал тебя в базу данных.")
-                return
             else:
                 await message.answer(f"С возвращением, {name}!")
 
-        await message.answer("Используй команды:\n"
-                             "/add_pet - добавить питомца\n"
-                             "/add_disease - добавить болезнь\n"
-                             "/view_pets - показать всех питомцев\n"
-                             "/add_chronic_diseases - добавить хроническую болезнь\n"
-                             "/add_allergy - добавить аллергию")
-        return
+        # Отправляем сообщение с кнопками
+        await message.answer("Выберите действие:", reply_markup=get_main_menu())
+
     except Exception as e:
         logger.error(f"Ошибка в команде /start: {e}")
         await message.answer("Произошла ошибка. Попробуйте позже.")
         return
 
-# Добавление питомца
-@dp.message_handler(commands=['add_pet'])
-async def add_pet(message: types.Message):
-    user_id = message.from_user.id
-    async with db_pool.acquire() as conn:
-            telegram_id = await conn.fetchval("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
-    if not telegram_id:
-        await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-        return
-    
-    await message.answer("Введите данные о питомце в формате:\n"
-                         "Имя, Дата рождения (ГГГГ-ММ-ДД), Пол (М/Ж), Порода, Цвет, Вес, Стерилизован (Да/Нет), Город, Условия содержания")
-    # dp.register_message_handler(process_add_pet)
-    await PetsForm.add_pet.set()
+# Обрабатываем нажатие на кнопки
+@dp.callback_query_handler(lambda c: c.data)
+async def process_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    try:
+        data = callback_query.data
+        user_id = callback_query.from_user.id
 
-@dp.message_handler(state=PetsForm.add_pet)
+        async with db_pool.acquire() as conn:
+            user_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM users WHERE telegram_id = $1)", user_id)
+            if not user_exists:
+                await callback_query.message.answer("Вы не зарегистрировались, введите /start для регистрации")
+                return
+
+        # Определение состояния по команде
+        if data == "add_pet":
+            await PetsForm.add_pet.set()  # Устанавливаем состояние для добавления питомца
+            await callback_query.message.answer("Введите данные о питомце в формате:\nИмя, Дата рождения (ГГГГ-ММ-ДД), Пол (М/Ж), Порода, Цвет, Вес, Стерилизован (Да/Нет), Город, Условия содержания")
+        elif data == "view_pets":
+            await PetsForm.view_pets.set()  # Устанавливаем состояние для просмотра питомцев
+            await process_view_pets(callback_query.message, state)  # Передаем состояние
+        elif data == "add_disease":
+            await MedicalCardForm.disease.set()
+            await process_add_disease(callback_query.message, state)  # Передаем состояние
+        elif data == "add_chronic_disease":
+            await MedicalCardForm.chronic_disease.set()
+            await process_add_chronic_diseases(callback_query.message, state)  # Передаем состояние
+        elif data == "add_allergy":
+            await MedicalCardForm.allergy.set()
+            await process_add_allergy(callback_query.message, state)  # Передаем состояние
+
+    except Exception as e:
+        logger.error(f"Ошибка при выборе команды: {e}")
+        await callback_query.message.answer("Произошла ошибка при выборе команды. Попробуйте позже.")
+
+
+
+# Добавление питомца
+@dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=PetsForm.add_pet)
 async def process_add_pet(message: types.Message, state: FSMContext):
     try:
         user_id = message.from_user.id
         data = message.text.split(',')
         if len(data) != 9:
             await message.answer("Ошибка: необходимо ввести все 9 полей через запятую.")
-
+            await state.finish()
         name, birth_date_str, sex, breed, color, weight, sterilized, town, keeping = [x.strip() for x in data]
         weight = float(weight)
 
         # Преобразуем строку даты рождения в объект datetime.date
         try:
             birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
-        except ValueError:
-            await message.answer("Ошибка: неверный формат даты. Используйте формат ГГГГ-ММ-ДД.")
+        except ValueError as ve:
+            logger.error(f"Ошибка преобразования даты: {ve}")
+            await message.answer("Ошибка: неверный формат даты. Пожалуйста, используйте формат ГГГГ-ММ-ДД.")
 
         async with db_pool.acquire() as conn:
             await conn.execute(
@@ -137,16 +168,10 @@ async def process_add_pet(message: types.Message, state: FSMContext):
         await state.finish()
 
 # Просмотр всех питомцев пользователя
-@dp.message_handler(commands=['view_pets'])
-@dp.message_handler(state=PetsForm.view_pets)
+@dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=PetsForm.view_pets)
 async def process_view_pets(message: types.Message, state: FSMContext):
     try:
         user_id = message.from_user.id
-        async with db_pool.acquire() as conn:
-            telegram_id = await conn.fetchval("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
-        if not telegram_id:
-            await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-            await state.finish()
         async with db_pool.acquire() as conn:
             pets = await conn.fetch(
                 """
@@ -186,12 +211,17 @@ async def process_view_pets(message: types.Message, state: FSMContext):
 
                     # Формируем строку ответа для каждого питомца
                     response += (
-                        f"Имя: {pet['name']}, Дата рождения: {pet['date_birth']}, Порода: {pet['breed']}, "
-                        f"Цвет: {pet['color']}, Вес: {pet['weight']} кг, "
-                        f"Аллергия: {allergy}, Хронические болезни: {chronic_diseases}, "
-                        f"Текущая болезнь: {current_disease}, Текущие рекомендации: {current_recommendation}\n\n"
+                        f"<b>Имя:</b> {pet['name']}\n"
+                        f"<b>Дата рождения:</b> {pet['date_birth']}\n"
+                        f"<b>Порода:</b> {pet['breed']}\n"
+                        f"<b>Цвет:</b> {pet['color']}\n"
+                        f"<b>Вес:</b> {pet['weight']} кг\n"
+                        f"<b>Аллергия:</b> {allergy}\n"
+                        f"<b>Хронические болезни:</b> {chronic_diseases}\n"
+                        f"<b>Текущая болезнь:</b> {current_disease}\n"
+                        f"<b>Рекомендации:</b> {current_recommendation}\n\n"
                     )
-                await message.answer(response)
+                await message.answer(response, parse_mode=ParseMode.HTML)
                 await state.finish()
     except Exception as e:
         logger.error(f"Ошибка при просмотре питомцев: {e}")
@@ -199,26 +229,15 @@ async def process_view_pets(message: types.Message, state: FSMContext):
         await state.finish()
 
 # Добавление болезни в медицинскую карту
-@dp.message_handler(commands=['add_disease'])
-async def add_disease(message: types.Message):
-    user_id = message.from_user.id
-    async with db_pool.acquire() as conn:
-        telegram_id = await conn.fetchval("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
-        if not telegram_id:
-            await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-            return
+@dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=MedicalCardForm.disease)
+async def process_add_disease(message: types.Message, state: FSMContext):
     await message.answer("Введите данные о болезни в формате:\n"
                          "Имя питомца, Болезнь, Рекомендация")
-    # dp.register_message_handler(process_add_disease)
-    await MedicalCardForm.disease.set()
-
-@dp.message_handler(state=MedicalCardForm.disease)
-async def process_add_disease(message: types.Message, state: FSMContext):
     try:
         data_disease = message.text.split(',')
         if len(data_disease) != 3:
             await message.answer("Ошибка: необходимо ввести 3 поля (Имя питомца, Болезнь, Рекомендация) через запятую.")
-
+            await state.finish()
         name, diseases, recommendations = [x.strip() for x in data_disease]
 
         telegram_id = message.from_user.id
@@ -228,9 +247,6 @@ async def process_add_disease(message: types.Message, state: FSMContext):
 
         async with db_pool.acquire() as conn:
             user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
-            if user_id == None:
-                await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-                await state.finish()
             pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
             if pet_id == None:
                 await message.answer(f"Такого питомца не существует")
@@ -262,38 +278,23 @@ async def process_add_disease(message: types.Message, state: FSMContext):
         await state.finish()
 
 # Добавление хронической болезни в медицинскую карту
-@dp.message_handler(commands=['add_chronic_diseases'])
-async def add_chronic_diseases(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    async with db_pool.acquire() as conn:
-        telegram_id = await conn.fetchval("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
-        if not telegram_id:
-            await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-            return
+@dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=MedicalCardForm.chronic_disease)
+async def process_add_chronic_diseases(message: types.Message, state: FSMContext):
     await message.answer("Введите данные о болезни в формате:\n"
                          "Имя питомца, Хроническая болезнь")
-    
-    # Установите состояние для следующего шага
-    await MedicalCardForm.chronic_disease.set()
-
-@dp.message_handler(state=MedicalCardForm.chronic_disease)
-async def process_add_chronic_diseases(message: types.Message, state: FSMContext):
     try:
         data_chronic = message.text.split(',')
         if len(data_chronic) != 2:
             await message.answer("Ошибка: необходимо ввести 2 поля (Имя питомца, Хроническая болезнь) через запятую.")
-            return
+            await state.finish()
         name, chronic_diseases = [x.strip() for x in data_chronic]
         telegram_id = message.from_user.id
         async with db_pool.acquire() as conn:
             user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
-            if user_id == None:
-                await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-                return
             pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
             if pet_id == None:
                 await message.answer(f"Такого питомца не существует")
-                return
+                await state.finish()
             pet_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM medical_card WHERE pet_id = $1)", pet_id)
             if not pet_exists:
                 await conn.execute(
@@ -303,6 +304,7 @@ async def process_add_chronic_diseases(message: types.Message, state: FSMContext
                     """, pet_id, chronic_diseases
                 )
                 await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.")
+                await state.finish()
             else:
                 await conn.execute(
                 """
@@ -320,40 +322,23 @@ async def process_add_chronic_diseases(message: types.Message, state: FSMContext
         await state.finish()
 
 # Добавление аллергии в медицинскую карту
-@dp.message_handler(commands=['add_allergy'])
-async def add_allergy(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    async with db_pool.acquire() as conn:
-        telegram_id = await conn.fetchval("SELECT EXISTS(SELECT FROM users WHERE telegram_id = $1)", user_id)
-        if not telegram_id:
-            await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-            return
+@dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=MedicalCardForm.allergy)
+async def process_add_allergy(message: types.Message, state: FSMContext):
     await message.answer("Введите данные о болезни в формате:\n"
                          "Имя питомца, Аллергия")
-    
-    # Установите состояние для следующего шага
-    await MedicalCardForm.allergy.set()
-    # dp.register_message_handler(process_add_allergy)
-
-@dp.message_handler(state=MedicalCardForm.allergy)
-async def process_add_allergy(message: types.Message, state: FSMContext):
     try:
-        print("Я в try аллергии")
         data_allergy = message.text.split(',')
         if len(data_allergy) != 2:
             await message.answer("Ошибка: необходимо ввести 2 поля (Имя питомца, Аллергия) через запятую.")
-            return
+            await state.finish()
         name, allergy = [x.strip() for x in data_allergy]
         telegram_id = message.from_user.id
         async with db_pool.acquire() as conn:
             user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
-            if user_id == None:
-                await message.answer(f"Вы не зарегистрировались, введите /start для регистрации")
-                return
             pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
             if pet_id == None:
                 await message.answer(f"Такого питомца не существует")
-                return
+                await state.finish()
             pet_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM medical_card WHERE pet_id = $1)", pet_id)
             if not pet_exists:
                 await conn.execute(
@@ -363,6 +348,7 @@ async def process_add_allergy(message: types.Message, state: FSMContext):
                     """, pet_id, allergy
                 )
                 await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.")
+                await state.finish()
             else:
                 await conn.execute(
                 """
@@ -385,6 +371,8 @@ if __name__ == '__main__':
         global db_pool
         db_pool = await create_db_pool()
         print("Бот инициализирован")
+
     async def on_shutdown(dp):
         await db_pool.close()
+
     executor.start_polling(dp, on_startup=on_startup, on_shutdown=on_shutdown)
