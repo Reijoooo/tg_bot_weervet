@@ -11,7 +11,9 @@ CREATE TABLE pets (
     user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
     pet_id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
+    type VARCHAR(100) NOT NULL,
     date_birth DATE NOT NULL,
+    age INT DEFAULT 0,
     sex CHAR(1) CHECK (sex IN ('М', 'м', 'Ж', 'ж')) NOT NULL,
     breed VARCHAR(50) NOT NULL,
     color VARCHAR(50) NOT NULL,
@@ -27,25 +29,27 @@ CREATE TABLE pets (
 
 -- Функция для добавления pet_id в таблицу user_id
 
-CREATE OR REPLACE FUNCTION update_users_pets()
+CREATE OR REPLACE FUNCTION update_pets()
 RETURNS TRIGGER AS $$
 BEGIN
     UPDATE users
     SET pet_ids = array_append(pet_ids, NEW.pet_id)
     WHERE user_id = NEW.user_id;
 
+    NEW.age := EXTRACT(YEAR FROM AGE(NEW.date_birth));
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER update_users_pets
+CREATE TRIGGER update_pets
 AFTER INSERT ON pets
 FOR EACH ROW
-EXECUTE FUNCTION update_users_pets();
+EXECUTE FUNCTION update_pets();
 
 
 
 CREATE TABLE medical_card (
+    user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
     pet_id INT REFERENCES pets(pet_id) ON DELETE CASCADE,
     allergy VARCHAR(250),
     chronic_diseases VARCHAR(250),
@@ -81,6 +85,7 @@ EXECUTE FUNCTION add_disease_and_recommendation();
 
 
 CREATE TABLE shedule (
+    user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
     pet_id INT REFERENCES pets(pet_id) ON DELETE CASCADE,
     drug VARCHAR(100) NOT NULL,
     date DATE NOT NULL,
@@ -89,6 +94,53 @@ CREATE TABLE shedule (
     duration INT NOT NULL
 );
 
+
+CREATE TABLE visits (
+    user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+    date DATE[] DEFAULT'{}' NOT NULL,
+    counter INT DEFAULT 0,
+    title TEXT[] DEFAULT'{}' NOT NULL,
+    fio TEXT[] DEFAULT'{}',
+    complaints TEXT[] DEFAULT'{}',
+    recommendations TEXT[] DEFAULT'{}',
+    description TEXT[] DEFAULT'{}'
+);
+
+CREATE OR REPLACE FUNCTION add_visits()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Проверяем, что новые данные действительно передаются для добавления
+    IF TG_OP = 'INSERT' OR (NEW.DATE IS DISTINCT FROM OLD.DATE OR NEW.title IS DISTINCT FROM OLD.title OR NEW.fio IS DISTINCT FROM OLD.fio OR NEW.complaints IS DISTINCT FROM OLD.complaints OR NEW.recommendations IS DISTINCT FROM OLD.recommendations OR NEW.description IS DISTINCT FROM OLD.description) THEN
+        -- Увеличиваем счётчик на 1
+        NEW.counter := NEW.counter + 1;
+
+        -- Добавляем новую дату в массив date
+        NEW.date := array_append(OLD.date, NEW.date[NEW.counter]);
+
+        -- Добавляем новое название title
+        NEW.title := array_append(OLD.title, NEW.title[NEW.counter]);
+
+        -- Добавляем fio
+        NEW.fio := array_append(OLD.fio, NEW.fio[NEW.counter]);
+
+        -- Добавляем complaints
+        NEW.complaints := array_append(OLD.complaints, NEW.complaints[NEW.counter]);
+
+        -- Добавляем recommendations
+        NEW.recommendations := array_append(OLD.recommendations, NEW.recommendations[NEW.counter]);
+
+        -- Добавляем description
+        NEW.description := array_append(OLD.description, NEW.description[NEW.counter]);
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_add_visits
+BEFORE INSERT OR UPDATE ON  visits
+FOR EACH ROW
+EXECUTE FUNCTION add_visits();
 
 ======================================================================================
 ALTER TABLE medical_card

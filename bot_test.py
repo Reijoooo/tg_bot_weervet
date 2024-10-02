@@ -42,30 +42,39 @@ async def create_db_pool():
 
 db_pool = None
 
-
 class MedicalCardForm(StatesGroup):
     chronic_disease = State()
     allergy = State()
     disease = State()
 
 class PetsForm(StatesGroup):
+    add_pet_name = State()
+    add_pet_type = State()
+    add_pet_date = State()
+    add_pet_sex = State()
+    add_pet_breed = State()
+    add_pet_color = State()
+    add_pet_weight = State()
+    add_pet_sterilized = State()
+    add_pet_town = State()
     add_pet = State()
+
     view_pets = State()
 
-# Создаем инлайн-клавиатуру для выбора опций
-def get_main_menu():
-    keyboard = InlineKeyboardMarkup(row_width=2)
+def canceled():
+    keyboard = InlineKeyboardMarkup(row_width=1)
     buttons = [
-        InlineKeyboardButton(text="Добавить питомца", callback_data="add_pet"),
-        InlineKeyboardButton(text="Показать питомцев", callback_data="view_pets"),
-        InlineKeyboardButton(text="Добавить болезнь", callback_data="add_disease"),
-        InlineKeyboardButton(text="Добавить хроническую болезнь", callback_data="add_chronic_disease"),
-        InlineKeyboardButton(text="Добавить аллергию", callback_data="add_allergy"),
+        InlineKeyboardButton(text="Отменить", callback_data='cancel'),
     ]
     keyboard.add(*buttons)
     return keyboard
 
-# Команда /start
+@dp.callback_query_handler(lambda c: c.data == 'cancel', state="*")
+async def process_cancel(callback_query: types.CallbackQuery, state: FSMContext):
+    await state.finish()  # Завершаем текущее состояние
+    await callback_query.message.answer("Действие отменено. Выберите следующее:", reply_markup=get_main_menu())
+
+# Команда /start 
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
     try:
@@ -97,6 +106,19 @@ async def start(message: types.Message):
         await message.answer("Произошла ошибка. Попробуйте позже.")
         return
 
+# Создаем инлайн-клавиатуру для выбора опций
+def get_main_menu():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        InlineKeyboardButton(text="Добавить питомца", callback_data="add_pet"),
+        InlineKeyboardButton(text="Показать питомцев", callback_data="view_pets"),
+        InlineKeyboardButton(text="Добавить болезнь", callback_data="add_disease"),
+        InlineKeyboardButton(text="Добавить хроническую болезнь", callback_data="add_chronic_disease"),
+        InlineKeyboardButton(text="Добавить аллергию", callback_data="add_allergy"),
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
 # Обрабатываем нажатие на кнопки
 @dp.callback_query_handler(lambda c: c.data)
 async def process_callback(callback_query: types.CallbackQuery, state: FSMContext):
@@ -112,78 +134,150 @@ async def process_callback(callback_query: types.CallbackQuery, state: FSMContex
 
         # Определение состояния по команде
         if data == "add_pet":
-            await PetsForm.add_pet.set()  # Устанавливаем состояние для добавления питомца
-            await callback_query.message.answer("Введите данные о питомце в формате:\nИмя, Дата рождения (ГГГГ-ММ-ДД), Пол (М/Ж), Порода, Цвет, Вес, Стерилизован (Да/Нет), Город, Условия содержания")
+            await PetsForm.add_pet_name.set()
+            await callback_query.message.answer("Введите имя питомца:", reply_markup=canceled())
+ 
         elif data == "view_pets":
             await PetsForm.view_pets.set()  # Устанавливаем состояние для просмотра питомцев
-            await process_view_pets(callback_query.message, state)  # Передаем состояние
+            await process_view_pets(callback_query, callback_query.message, state)  # Передаем состояние
+       
         elif data == "add_disease":
             await MedicalCardForm.disease.set()
-            await process_add_disease(callback_query.message, state)  # Передаем состояние
+            await callback_query.message.answer("Введите данные о болезни в формате:\n"
+                                                "Имя питомца, Болезнь, Рекомендация")
+        
         elif data == "add_chronic_disease":
             await MedicalCardForm.chronic_disease.set()
-            await process_add_chronic_diseases(callback_query.message, state)  # Передаем состояние
+            await callback_query.message.answer("Введите данные о болезни в формате:\n"
+                                                "Имя питомца, Хроническая болезнь")
+        
         elif data == "add_allergy":
             await MedicalCardForm.allergy.set()
-            await process_add_allergy(callback_query.message, state)  # Передаем состояние
+            await callback_query.message.answer("Введите данные о болезни в формате:\n"
+                                                "Имя питомца, Аллергия")
 
     except Exception as e:
         logger.error(f"Ошибка при выборе команды: {e}")
         await callback_query.message.answer("Произошла ошибка при выборе команды. Попробуйте позже.")
 
 
-
 # Добавление питомца
-@dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=PetsForm.add_pet)
-async def process_add_pet(message: types.Message, state: FSMContext):
-    try:
-        user_id = message.from_user.id
-        data = message.text.split(',')
-        if len(data) != 9:
-            await message.answer("Ошибка: необходимо ввести все 9 полей через запятую.")
-            await state.finish()
-        name, birth_date_str, sex, breed, color, weight, sterilized, town, keeping = [x.strip() for x in data]
-        weight = float(weight)
+@dp.message_handler(state=PetsForm.add_pet_name)
+async def process_add_pet_name(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        ani['name'] = message.text.strip()
+    await PetsForm.next()
+    await message.answer("Введите тип питомца:", reply_markup=canceled())
 
-        # Преобразуем строку даты рождения в объект datetime.date
+@dp.message_handler(state=PetsForm.add_pet_type)
+async def process_add_pet_type(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        ani['type'] = message.text.strip()
+    await PetsForm.next()
+    await message.answer("Введите дату рождения в формате ГГГГ-ММ-ДД:", reply_markup=canceled())
+
+@dp.message_handler(state=PetsForm.add_pet_date)
+async def process_add_pet_type(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        birth_date_str = message.text.strip()
+
         try:
-            birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
+            ani['birth_date'] = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
         except ValueError as ve:
             logger.error(f"Ошибка преобразования даты: {ve}")
-            await message.answer("Ошибка: неверный формат даты. Пожалуйста, используйте формат ГГГГ-ММ-ДД.")
+            await message.answer("Ошибка: неверный формат даты. Пожалуйста, используйте формат ГГГГ-ММ-ДД. Повторите ввод даты:", reply_markup=canceled())
+            await PetsForm.add_pet_date()
 
-        async with db_pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO pets (user_id, name, date_birth, sex, breed, color, weight, sterilized, town, keeping)
-                VALUES ((SELECT user_id FROM users WHERE telegram_id = $1), $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                """,
-                user_id, name, birth_date, sex, breed, color, weight, sterilized, town, keeping
-            )
-            await message.answer(f"Питомец {name} успешно добавлен!")
-            await state.finish()
-    except Exception as e:
-        logger.error(f"Ошибка при добавлении питомца: {e}")
-        await message.answer("Произошла ошибка при добавлении питомца. Попробуйте позже.")
-        await state.finish()
+    await PetsForm.next()
+    await message.answer("Введите мол М или Ж:", reply_markup=canceled())
+
+@dp.message_handler(state=PetsForm.add_pet_sex)
+async def process_add_pet_type(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        ani['sex'] = message.text.strip()
+    await PetsForm.next()
+    await message.answer("Введите породу:", reply_markup=canceled())
+
+@dp.message_handler(state=PetsForm.add_pet_breed)
+async def process_add_pet_type(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        ani['breed'] = message.text.strip()
+    await PetsForm.next()
+    await message.answer("Введите цвет:", reply_markup=canceled())
+
+@dp.message_handler(state=PetsForm.add_pet_color)
+async def process_add_pet_type(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        ani['color'] = message.text.strip()
+    await PetsForm.next()
+    await message.answer("Введите вес:", reply_markup=canceled())
+
+@dp.message_handler(state=PetsForm.add_pet_weight)
+async def process_add_pet_type(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        ani['weight'] = int(message.text.strip())
+    await PetsForm.next()
+    await message.answer("Введите стерилизацию Да или Нет:", reply_markup=canceled())
+
+@dp.message_handler(state=PetsForm.add_pet_sterilized)
+async def process_add_pet_type(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        ani['sterilized'] = message.text.strip()
+    await PetsForm.next()
+    await message.answer("Введите город:", reply_markup=canceled())
+
+@dp.message_handler(state=PetsForm.add_pet_town)
+async def process_add_pet_type(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        ani['town'] = message.text.strip()
+    await PetsForm.next()
+    await message.answer("Введите условия содержания:", reply_markup=canceled())
+    
+
+@dp.message_handler(state=PetsForm.add_pet)
+async def process_add_pet(message: types.Message, state: FSMContext):
+    async with state.proxy() as ani:
+        ani['keeping'] = message.text.strip()
+        try:
+            user_id = message.from_user.id
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO pets (user_id, name, type, date_birth, sex, breed, color, weight, sterilized, town, keeping)
+                    VALUES ((SELECT user_id FROM users WHERE telegram_id = $1), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    """,
+                    user_id, ani['name'], ani['type'], ani['birth_date'], ani['sex'], ani['breed'], ani['color'], ani['weight'], ani['sterilized'], ani['town'], ani['keeping']
+                )
+                await message.answer(f"Питомец {ani['name']} успешно добавлен!", await state.finish(), reply_markup=get_main_menu())
+        except Exception as e:
+            logger.error(f"Ошибка при добавлении питомца: {e}")
+            await message.answer("Произошла ошибка при добавлении питомца. Попробуйте позже.", await state.finish(), reply_markup=get_main_menu())
+        
 
 # Просмотр всех питомцев пользователя
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=PetsForm.view_pets)
-async def process_view_pets(message: types.Message, state: FSMContext):
+async def process_view_pets(callback_query: types.CallbackQuery, message: types.Message, state: FSMContext):
     try:
-        user_id = message.from_user.id
+        telegram_id = callback_query.from_user.id
+
         async with db_pool.acquire() as conn:
             pets = await conn.fetch(
                 """
-                SELECT p.name, p.date_birth, p.breed, p.color, p.weight, p.pet_id
+                SELECT p.name, p.type, p.date_birth, p.breed, p.color, p.weight, p.pet_id
                 FROM pets p
                 JOIN users u ON p.user_id = u.user_id
                 WHERE u.telegram_id = $1
-                """, user_id
+                """, telegram_id
             )
+
+            # Логируем результат запроса
+            logger.info(f"Найдено {len(pets)} питомцев для пользователя с ID {telegram_id}")
+            logger.info(f"Питомцы: {pets}")
+
             if not pets:
                 await message.answer("У вас нет питомцев.")
                 await state.finish()
+                
             else:
                 response = "Ваши питомцы:\n"
                 for pet in pets:
@@ -212,6 +306,7 @@ async def process_view_pets(message: types.Message, state: FSMContext):
                     # Формируем строку ответа для каждого питомца
                     response += (
                         f"<b>Имя:</b> {pet['name']}\n"
+                        f"<b>Тип:</b> {pet['type']}\n"
                         f"<b>Дата рождения:</b> {pet['date_birth']}\n"
                         f"<b>Порода:</b> {pet['breed']}\n"
                         f"<b>Цвет:</b> {pet['color']}\n"
@@ -222,17 +317,16 @@ async def process_view_pets(message: types.Message, state: FSMContext):
                         f"<b>Рекомендации:</b> {current_recommendation}\n\n"
                     )
                 await message.answer(response, parse_mode=ParseMode.HTML)
-                await state.finish()
+            await state.finish()
+            await message.answer("Что вы хотите сделать дальше?", reply_markup=get_main_menu())
     except Exception as e:
         logger.error(f"Ошибка при просмотре питомцев: {e}")
-        await message.answer("Произошла ошибка при просмотре питомцев. Попробуйте позже.")
         await state.finish()
+        await message.answer("Произошла ошибка при просмотре питомцев. Попробуйте позже.", reply_markup=get_main_menu())
 
 # Добавление болезни в медицинскую карту
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=MedicalCardForm.disease)
 async def process_add_disease(message: types.Message, state: FSMContext):
-    await message.answer("Введите данные о болезни в формате:\n"
-                         "Имя питомца, Болезнь, Рекомендация")
     try:
         data_disease = message.text.split(',')
         if len(data_disease) != 3:
@@ -259,8 +353,7 @@ async def process_add_disease(message: types.Message, state: FSMContext):
                     VALUES ($1, $2, $3)
                     """, pet_id, diseases_list, recommendations_list
                 )
-                await message.answer(f"Болезнь '{diseases}' и рекомендация '{recommendations}' добавлены для питомца с именем {name}.")
-                await state.finish()
+                await message.answer(f"Болезнь '{diseases}' и рекомендация '{recommendations}' добавлены для питомца с именем {name}.", await state.finish(), reply_markup=get_main_menu())
             else:
                 await conn.execute(
                 """
@@ -270,18 +363,14 @@ async def process_add_disease(message: types.Message, state: FSMContext):
                 WHERE pet_id = $3
                 """, diseases, recommendations, pet_id
                 )
-                await message.answer(f"Болезнь '{diseases}' и рекомендация '{recommendations}' добавлены для питомца с именем {name}.")
-                await state.finish()
+                await message.answer(f"Болезнь '{diseases}' и рекомендация '{recommendations}' добавлены для питомца с именем {name}.", await state.finish(), reply_markup=get_main_menu())
     except Exception as e:
         logger.error(f"Ошибка при добавлении болезни: {e}")
-        await message.answer("Произошла ошибка при добавлении болезни. Попробуйте позже.")
-        await state.finish()
+        await message.answer("Произошла ошибка при добавлении болезни. Попробуйте позже.", await state.finish(), reply_markup=get_main_menu())
 
 # Добавление хронической болезни в медицинскую карту
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=MedicalCardForm.chronic_disease)
 async def process_add_chronic_diseases(message: types.Message, state: FSMContext):
-    await message.answer("Введите данные о болезни в формате:\n"
-                         "Имя питомца, Хроническая болезнь")
     try:
         data_chronic = message.text.split(',')
         if len(data_chronic) != 2:
@@ -293,8 +382,7 @@ async def process_add_chronic_diseases(message: types.Message, state: FSMContext
             user_id = await conn.fetchval("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
             pet_id = await conn.fetchval("SELECT pet_id FROM pets WHERE user_id = $1 AND name = $2", user_id, name)
             if pet_id == None:
-                await message.answer(f"Такого питомца не существует")
-                await state.finish()
+                await message.answer(f"Такого питомца не существует", await state.finish(), reply_markup=get_main_menu())
             pet_exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM medical_card WHERE pet_id = $1)", pet_id)
             if not pet_exists:
                 await conn.execute(
@@ -303,8 +391,7 @@ async def process_add_chronic_diseases(message: types.Message, state: FSMContext
                     VALUES ($1, $2)
                     """, pet_id, chronic_diseases
                 )
-                await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.")
-                await state.finish()
+                await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.", await state.finish(), reply_markup=get_main_menu())
             else:
                 await conn.execute(
                 """
@@ -313,19 +400,14 @@ async def process_add_chronic_diseases(message: types.Message, state: FSMContext
                 WHERE pet_id = $2
                 """, chronic_diseases, pet_id
                 )
-                await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.")
-                await state.finish()
+                await message.answer(f"Хроническая болезнь '{chronic_diseases}' добавлена для питомца с именем {name}.", await state.finish(), reply_markup=get_main_menu())
     except Exception as e:
         logger.error(f"Ошибка при добавлении хронической болезни: {e}")
-        await message.answer("Произошла ошибка при добавлении хронической болезни. Попробуйте позже.")
-        # Завершите состояние
-        await state.finish()
+        await message.answer("Произошла ошибка при добавлении хронической болезни. Попробуйте позже.", await state.finish(), reply_markup=get_main_menu())
 
 # Добавление аллергии в медицинскую карту
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/'), state=MedicalCardForm.allergy)
 async def process_add_allergy(message: types.Message, state: FSMContext):
-    await message.answer("Введите данные о болезни в формате:\n"
-                         "Имя питомца, Аллергия")
     try:
         data_allergy = message.text.split(',')
         if len(data_allergy) != 2:
@@ -347,8 +429,7 @@ async def process_add_allergy(message: types.Message, state: FSMContext):
                     VALUES ($1, $2)
                     """, pet_id, allergy
                 )
-                await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.")
-                await state.finish()
+                await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.", await state.finish(), reply_markup=get_main_menu())
             else:
                 await conn.execute(
                 """
@@ -357,13 +438,10 @@ async def process_add_allergy(message: types.Message, state: FSMContext):
                 WHERE pet_id = $2
                 """, allergy, pet_id
                 )
-                await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.")
-                await state.finish()
+                await message.answer(f"Аллергия '{allergy}' добавлена для питомца с именем {name}.", await state.finish(), reply_markup=get_main_menu())
     except Exception as e:
         logger.error(f"Ошибка при добавлении аллергии: {e}")
-        await message.answer("Произошла ошибка при добавлении аллергии. Попробуйте позже.")
-        # Завершите состояние
-        await state.finish()
+        await message.answer("Произошла ошибка при добавлении аллергии. Попробуйте позже.", await state.finish(), reply_markup=get_main_menu())
 
 # Запуск бота
 if __name__ == '__main__':
