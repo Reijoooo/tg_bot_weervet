@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 
 // Простая маршрутизация
-app.get('/api/message', (req, res) => {
+app.get('/message', (req, res) => {
   res.json({ message: 'Привет из MiniApp на сервере!' });
 });
 
