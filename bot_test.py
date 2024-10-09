@@ -82,12 +82,10 @@ def canceled():
 async def get_pets(message: types.Message, state: FSMContext):
     telegram_id = message.from_user.id
     try:
-        print("Я тут")
         conn = await asyncpg.connect(DATABASE_URL)
         user_id = await conn.fetch("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
         name = await conn.fetch("SELECT name FROM pets WHERE user_id = $1", user_id)
         pet = await conn.fetch("SELECT pet_id FROM pets WHERE user_id = $1", user_id)
-        print("Строка", name, pet)
         await conn.close()
         await state.finish()
         return await message.answer(reply_markup=chose_pets(name, pet))
@@ -145,13 +143,13 @@ async def start(message: types.Message):
 
 # Создаем инлайн-клавиатуру для выбора опций
 def get_main_menu():
-    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard = InlineKeyboardMarkup(row_width=1)
     buttons = [
         InlineKeyboardButton(text="Добавить питомца", callback_data="add_pet"),
         InlineKeyboardButton(text="Показать питомцев", callback_data="view_pets"),
-        InlineKeyboardButton(text="Добавить болезнь", callback_data="add_disease"),
         InlineKeyboardButton(text="Добавить хроническую болезнь", callback_data="add_chronic_disease"),
         InlineKeyboardButton(text="Добавить аллергию", callback_data="add_allergy"),
+        InlineKeyboardButton(text="Добавить болезнь", callback_data="add_disease"),
         InlineKeyboardButton(text="Добавить напоминание", callback_data="add_shedule"),
     ]
     keyboard.add(*buttons)
@@ -231,7 +229,7 @@ async def process_add_pet_type(message: types.Message, state: FSMContext):
             await PetsForm.add_pet_date()
 
     await PetsForm.next()
-    await message.answer("Введите мол М или Ж:", reply_markup=canceled())
+    await message.answer("Введите пол М или Ж:", reply_markup=canceled())
 
 @dp.message_handler(state=PetsForm.add_pet_sex)
 async def process_add_pet_type(message: types.Message, state: FSMContext):
