@@ -1,3 +1,4 @@
+import asyncio
 import os
 import asyncpg
 import logging
@@ -6,7 +7,7 @@ from aiogram.types import ParseMode, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
 from aiogram.utils import executor
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -61,6 +62,14 @@ class PetsForm(StatesGroup):
 
     view_pets = State()
 
+class ReminderStates(StatesGroup):
+    chose_pet = State()
+    get_pets = State()
+    waiting_for_text = State()
+    waiting_for_time = State()
+    waiting_for_frequency = State()
+    waiting_for_repeat_end = State()
+
 def canceled():
     keyboard = InlineKeyboardMarkup(row_width=1)
     buttons = [
@@ -68,6 +77,34 @@ def canceled():
     ]
     keyboard.add(*buttons)
     return keyboard
+
+@dp.message_handler(state=ReminderStates.get_pets)
+async def get_pets(message: types.Message, state: FSMContext):
+    telegram_id = message.from_user.id
+    try:
+        print("Я тут")
+        conn = await asyncpg.connect(DATABASE_URL)
+        user_id = await conn.fetch("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
+        name = await conn.fetch("SELECT name FROM pets WHERE user_id = $1", user_id)
+        pet = await conn.fetch("SELECT pet_id FROM pets WHERE user_id = $1", user_id)
+        print("Строка", name, pet)
+        await conn.close()
+        await state.finish()
+        return await message.answer(reply_markup=chose_pets(name, pet))
+    except Exception as e:
+        print(f"Ошибка при получении данных из базы: {e}")
+        return
+
+def chose_pets(name, pet):
+    keyboard = InlineKeyboardMarkup(row_width=1)  # Создаем клавиатуру
+
+    for button in name:
+        button_name = name  # Название кнопки
+        callback_data = pet  # Callback для кнопки
+        keyboard.add(InlineKeyboardButton(text=button_name, callback_data=callback_data))
+
+    return keyboard
+    
 
 @dp.callback_query_handler(lambda c: c.data == 'cancel', state="*")
 async def process_cancel(callback_query: types.CallbackQuery, state: FSMContext):
@@ -115,6 +152,7 @@ def get_main_menu():
         InlineKeyboardButton(text="Добавить болезнь", callback_data="add_disease"),
         InlineKeyboardButton(text="Добавить хроническую болезнь", callback_data="add_chronic_disease"),
         InlineKeyboardButton(text="Добавить аллергию", callback_data="add_allergy"),
+        InlineKeyboardButton(text="Добавить напоминание", callback_data="add_shedule"),
     ]
     keyboard.add(*buttons)
     return keyboard
@@ -155,6 +193,10 @@ async def process_callback(callback_query: types.CallbackQuery, state: FSMContex
             await MedicalCardForm.allergy.set()
             await callback_query.message.answer("Введите данные о болезни в формате:\n"
                                                 "Имя питомца, Аллергия")
+            
+        elif data == "add_shedule":
+            await ReminderStates.get_pets.set()
+            await get_pets(callback_query.message, state)
 
     except Exception as e:
         logger.error(f"Ошибка при выборе команды: {e}")
@@ -174,7 +216,7 @@ async def process_add_pet_type(message: types.Message, state: FSMContext):
     async with state.proxy() as ani:
         ani['type'] = message.text.strip()
     await PetsForm.next()
-    await message.answer("Введите дату рождения в формате ГГГГ-ММ-ДД:", reply_markup=canceled())
+    await message.answer("Введите дату рождения в формате ГГГГ-ММ-ДД:", reply_markup=asyncio.run(canceled()))
 
 @dp.message_handler(state=PetsForm.add_pet_date)
 async def process_add_pet_type(message: types.Message, state: FSMContext):
@@ -442,6 +484,174 @@ async def process_add_allergy(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка при добавлении аллергии: {e}")
         await message.answer("Произошла ошибка при добавлении аллергии. Попробуйте позже.", await state.finish(), reply_markup=get_main_menu())
+
+# Обрабатываем имя питомца
+@dp.callback_query_handler(lambda c: c.data, state="*")
+async def process_chose_pet(callback_query: types.CallbackQuery, state: FSMContext):
+    await state.update_data(pet = callback_query.data)
+    await callback_query.answer("Теперь введите название напоминания:")
+    await ReminderStates.waiting_for_text.set()
+
+# Обрабатываем текст напоминания
+@dp.message_handler(state=ReminderStates.waiting_for_text, content_types=types.ContentType.TEXT)
+async def process_reminder_text(message: types.Message, state: FSMContext):
+    await state.update_data(reminder_text=message.text)
+    await message.answer("Отлично! Теперь укажите время для напоминания в формате (ГГГГ-ММ-ДД ЧЧ:ММ):")
+    await ReminderStates.waiting_for_time.set()
+
+# Обрабатываем время напоминания
+@dp.message_handler(state=ReminderStates.waiting_for_time, content_types=types.ContentType.TEXT)
+async def process_reminder_time(message: types.Message, state: FSMContext):
+    try:
+        reminder_time = datetime.strptime(message.text, '%Y-%m-%d %H:%M')
+        current_time = datetime.now()
+
+        if reminder_time <= current_time:
+            await message.answer("Время напоминания должно быть в будущем. Попробуйте еще раз.")
+            await ReminderStates.waiting_for_time()
+
+        await state.update_data(reminder_time=reminder_time)
+        # Переходим к выбору частоты повторения
+        keyboard = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("Каждый день", callback_data="daily"),
+            InlineKeyboardButton("Каждую неделю", callback_data="weekly"),
+            InlineKeyboardButton("Каждый месяц", callback_data="monthly"),
+            InlineKeyboardButton("Каждый год", callback_data="yearly"),
+            InlineKeyboardButton("Без повторений", callback_data="none")
+        )
+        await message.answer("Выберите частоту повторения:", reply_markup=keyboard)
+        await ReminderStates.waiting_for_frequency.set()
+
+    except ValueError:
+        await message.answer("Неправильный формат даты. Пожалуйста, используйте формат: ГГГГ-ММ-ДД ЧЧ:ММ")
+        await ReminderStates.waiting_for_time()
+
+# Обрабатываем частоту повторения
+@dp.callback_query_handler(state=ReminderStates.waiting_for_frequency)
+async def process_frequency(call: types.CallbackQuery, state: FSMContext):
+    await state.update_data(frequency=call.data)
+    # Спрашиваем про окончание повторения
+    keyboard = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("После определённой даты", callback_data="until_date"),
+        InlineKeyboardButton("После определённого количества повторений", callback_data="repeat_count"),
+        InlineKeyboardButton("Без окончания", callback_data="no_end")
+    )
+    await call.message.answer("Как завершить повторение?", reply_markup=keyboard)
+    await ReminderStates.waiting_for_repeat_end.set()
+
+# Обрабатываем вариант окончания повторений
+@dp.callback_query_handler(state=ReminderStates.waiting_for_repeat_end)
+async def process_repeat_end(call: types.CallbackQuery, state: FSMContext):
+    if call.data == "until_date":
+        await call.message.answer("Укажите дату окончания в формате (ГГГГ-ММ-ДД):")
+        await ReminderStates.waiting_for_repeat_end.set()
+        await state.update_data(repeat_end_type='date')
+
+    elif call.data == "repeat_count":
+        await call.message.answer("Укажите количество повторений:")
+        await ReminderStates.waiting_for_repeat_end.set()
+        await state.update_data(repeat_end_type='count')
+
+    else:
+        await state.update_data(repeat_end_type='none')
+        await finalize_reminder(call.message, state)
+
+# Обрабатываем дату окончания или количество повторений
+@dp.message_handler(state=ReminderStates.waiting_for_repeat_end, content_types=types.ContentType.TEXT)
+async def process_repeat_end_value(message: types.Message, state: FSMContext):
+    user_data = await state.get_data()
+    repeat_end_type = user_data.get('repeat_end_type')
+
+    if repeat_end_type == 'date':
+        try:
+            repeat_until_date = datetime.strptime(message.text, '%Y-%m-%d')
+            await state.update_data(repeat_until_date=repeat_until_date)
+        except ValueError:
+            await message.answer("Неправильный формат даты. Попробуйте еще раз.")
+            return
+    elif repeat_end_type == 'count':
+        try:
+            repeat_count = int(message.text)
+            await state.update_data(repeat_count=repeat_count)
+        except ValueError:
+            await message.answer("Введите корректное число.")
+            return
+    
+    await finalize_reminder(message, state)
+
+# Финализируем создание напоминания
+async def finalize_reminder(message: types.Message, state: FSMContext):
+    user_data = await state.get_data()
+    reminder_text = user_data['reminder_text']
+    reminder_time = user_data['reminder_time']
+    frequency = user_data.get('frequency', 'none')
+    repeat_until_date = user_data.get('repeat_until_date', None)
+    repeat_count = user_data.get('repeat_count', 0)
+
+    # Сохраняем в БД
+    await save_reminder(
+        message.from_user.id,
+        reminder_text,
+        reminder_time,
+        frequency,
+        repeat_until_date,
+        repeat_count
+    )
+    await message.answer(f"Напоминание установлено с частотой {frequency}.")
+    await state.finish()
+
+async def save_reminder(user_id: int, text: str, reminder_time: datetime, frequency: str, repeat_until_date: datetime, repeat_count: int):
+    conn = await asyncpg.connect(os.getenv("DATABASE_URL"))
+    await conn.execute(
+        "INSERT INTO reminders (user_id, text, reminder_time, frequency, repeat_until_date, repeat_count) "
+        "VALUES ($1, $2, $3, $4, $5, $6)",
+        user_id, text, reminder_time, frequency, repeat_until_date, repeat_count
+    )
+    await conn.close()
+
+async def check_reminders():
+    while True:
+        conn = await asyncpg.connect(os.getenv("DATABASE_URL"))
+        current_time = datetime.now()
+
+        # Извлекаем все напоминания, время которых пришло
+        rows = await conn.fetch(
+            "SELECT id, user_id, text, reminder_time, frequency, times_repeated, repeat_until_date, repeat_count FROM reminders WHERE reminder_time <= $1",
+            current_time
+        )
+
+        for row in rows:
+            await bot.send_message(row['user_id'], f"Напоминание: {row['text']}")
+
+            # Обновляем данные для следующего повторения, если есть частота повторения
+            if row['frequency'] != 'none':
+                next_reminder_time = calculate_next_reminder_time(row['reminder_time'], row['frequency'])
+
+                # Проверяем условия окончания
+                if (row['repeat_until_date'] and next_reminder_time > row['repeat_until_date']) or \
+                   (row['repeat_count'] and row['times_repeated'] + 1 >= row['repeat_count']):
+                    await conn.execute("DELETE FROM reminders WHERE id = $1", row['id'])
+                else:
+                    await conn.execute(
+                        "UPDATE reminders SET reminder_time = $1, times_repeated = times_repeated + 1 WHERE id = $2",
+                        next_reminder_time, row['id']
+                    )
+            else:
+                await conn.execute("DELETE FROM reminders WHERE id = $1", row['id'])
+
+        await conn.close()
+        await asyncio.sleep(60)
+
+def calculate_next_reminder_time(reminder_time, frequency):
+    if frequency == 'daily':
+        return reminder_time + timedelta(days=1)
+    elif frequency == 'weekly':
+        return reminder_time + timedelta(weeks=1)
+    elif frequency == 'monthly':
+        return reminder_time + timedelta(days=30)  # Упрощённый подсчет месяца
+    elif frequency == 'yearly':
+        return reminder_time + timedelta(days=365)
+
 
 # Запуск бота
 if __name__ == '__main__':
