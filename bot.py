@@ -94,7 +94,7 @@ async def start(message: types.Message):
                     VALUES ($1, $2)
                     """, telegram_id, name
                 )
-                await message.answer(f"Привет, {name}! Я записал тебя в базу данных.")
+                await message.answer(f"Привет, {name}!")
             else:
                 await message.answer(f"С возвращением, {name}!")
 
@@ -113,8 +113,8 @@ def get_main_menu():
         InlineKeyboardButton(text="Добавить питомца", callback_data="add_pet"),
         InlineKeyboardButton(text="Показать питомцев", callback_data="view_pets"),
         InlineKeyboardButton(text="Добавить болезнь", callback_data="add_disease"),
-        InlineKeyboardButton(text="Добавить хроническую болезнь", callback_data="add_chronic_disease"),
         InlineKeyboardButton(text="Добавить аллергию", callback_data="add_allergy"),
+        InlineKeyboardButton(text="Добавить хроническую болезнь", callback_data="add_chronic_disease"),
     ]
     keyboard.add(*buttons)
     return keyboard
@@ -189,7 +189,7 @@ async def process_add_pet_type(message: types.Message, state: FSMContext):
             await PetsForm.add_pet_date()
 
     await PetsForm.next()
-    await message.answer("Введите мол М или Ж:", reply_markup=canceled())
+    await message.answer("Введите пол М или Ж:", reply_markup=canceled())
 
 @dp.message_handler(state=PetsForm.add_pet_sex)
 async def process_add_pet_type(message: types.Message, state: FSMContext):
