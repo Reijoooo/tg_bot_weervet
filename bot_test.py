@@ -78,14 +78,21 @@ def canceled():
     keyboard.add(*buttons)
     return keyboard
 
+@dp.callback_query_handler(lambda c: c.data == 'cancel', state="*")
+async def process_cancel(callback_query: types.CallbackQuery, state: FSMContext):
+    await state.finish()  # Завершаем текущее состояние
+    await callback_query.message.answer("Действие отменено. Выберите следующее:", reply_markup=get_main_menu())
+
 @dp.message_handler(state=ReminderStates.get_pets)
-async def get_pets(message: types.Message, state: FSMContext):
-    telegram_id = message.from_user.id
+async def get_pets(message: types.Message, state: FSMContext, telegram_id):
+    # telegram_id = callback_query.from_user.id
+    print(telegram_id, '\n''\n')
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         user_id = await conn.fetch("SELECT user_id FROM users WHERE telegram_id = $1", telegram_id)
         name = await conn.fetch("SELECT name FROM pets WHERE user_id = $1", user_id)
         pet = await conn.fetch("SELECT pet_id FROM pets WHERE user_id = $1", user_id)
+        print("Строка", name, pet)
         await conn.close()
         await state.finish()
         return await message.answer(reply_markup=chose_pets(name, pet))
@@ -93,21 +100,15 @@ async def get_pets(message: types.Message, state: FSMContext):
         print(f"Ошибка при получении данных из базы: {e}")
         return
 
-def chose_pets(name, pet):
+def chose_pets(rows):
     keyboard = InlineKeyboardMarkup(row_width=1)  # Создаем клавиатуру
 
-    for button in name:
-        button_name = name  # Название кнопки
-        callback_data = pet  # Callback для кнопки
+    for button in rows:
+        button_name = button['name']  # Название кнопки
+        callback_data = button['pet_id']  # Callback для кнопки
         keyboard.add(InlineKeyboardButton(text=button_name, callback_data=callback_data))
 
     return keyboard
-    
-
-@dp.callback_query_handler(lambda c: c.data == 'cancel', state="*")
-async def process_cancel(callback_query: types.CallbackQuery, state: FSMContext):
-    await state.finish()  # Завершаем текущее состояние
-    await callback_query.message.answer("Действие отменено. Выберите следующее:", reply_markup=get_main_menu())
 
 # Команда /start 
 @dp.message_handler(commands=['start'])
@@ -132,7 +133,7 @@ async def start(message: types.Message):
                 await message.answer(f"Привет, {name}! Я записал тебя в базу данных.")
             else:
                 await message.answer(f"С возвращением, {name}!")
-
+        
         # Отправляем сообщение с кнопками
         await message.answer("Выберите действие:", reply_markup=get_main_menu())
 
@@ -194,7 +195,7 @@ async def process_callback(callback_query: types.CallbackQuery, state: FSMContex
             
         elif data == "add_shedule":
             await ReminderStates.get_pets.set()
-            await get_pets(callback_query.message, state)
+            await get_pets(callback_query.message, state, user_id)
 
     except Exception as e:
         logger.error(f"Ошибка при выборе команды: {e}")
@@ -483,9 +484,10 @@ async def process_add_allergy(message: types.Message, state: FSMContext):
         logger.error(f"Ошибка при добавлении аллергии: {e}")
         await message.answer("Произошла ошибка при добавлении аллергии. Попробуйте позже.", await state.finish(), reply_markup=get_main_menu())
 
-# Обрабатываем имя питомца
-@dp.callback_query_handler(lambda c: c.data, state="*")
+# Обрабатываем имя питомцаchose_pet
+@dp.message_handler(lambda c: c.data, state=ReminderStates.chose_pet)
 async def process_chose_pet(callback_query: types.CallbackQuery, state: FSMContext):
+    print("TYTAWA\n")
     await state.update_data(pet = callback_query.data)
     await callback_query.answer("Теперь введите название напоминания:")
     await ReminderStates.waiting_for_text.set()
