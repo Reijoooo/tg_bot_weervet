@@ -1,36 +1,45 @@
 import React, { useEffect, useState } from 'react';
 
+function FooterButtons() {
+  const handleClick = (button) => {
+    console.log(`Button ${button} clicked!`);
+  };
+
+  return (
+    <div className="bottom-buttons">
+      <button className="button" onClick={() => handleClick(1)}>Кнопка 1</button>
+      <button className="button" onClick={() => handleClick(2)}>Кнопка 2</button>
+      <button className="button" onClick={() => handleClick(3)}>Кнопка 3</button>
+      <button className="button" onClick={() => handleClick(4)}>Кнопка 4</button>
+    </div>
+  );
+}
+
 function App() {
-  const [viewportHeight, setViewportHeight] = useState(window.innerHeight); // Управление высотой экрана
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
 
   useEffect(() => {
-    const tg = window.Telegram.WebApp;
+    if (window.Telegram && window.Telegram.WebApp) {
+      const tg = window.Telegram.WebApp;
+      tg.expand();
 
-    // Разворачиваем мини-приложение на весь экран
-    tg.expand();
+      const handleViewportChange = () => {
+        setViewportHeight(tg.viewportHeight);
+        console.log("Изменение вьюпорта. Высота: " + tg.viewportHeight);
+      };
 
-    // Изменение высоты окна при изменении вьюпорта
-    const handleViewportChange = () => {
-      setViewportHeight(tg.viewportHeight);
-      console.log("Изменение вьюпорта. Высота: " + tg.viewportHeight);
-    };
+      tg.onEvent('viewportChanged', handleViewportChange);
 
-    tg.onEvent('viewportChanged', handleViewportChange);
-
-    return () => {
-      tg.offEvent('viewportChanged', handleViewportChange);
-    };
+      return () => {
+        tg.offEvent('viewportChanged', handleViewportChange);
+      };
+    }
   }, []);
 
   return (
     <div id="app" style={{ height: `${viewportHeight}px` }}>
       <h1>Контент приложения</h1>
-      <div className="bottom-buttons">
-        <button className="button">Кнопка 1</button>
-        <button className="button">Кнопка 2</button>
-        <button className="button">Кнопка 3</button>
-        <button className="button">Кнопка 4</button>
-      </div>
+      <FooterButtons />
     </div>
   );
 }
