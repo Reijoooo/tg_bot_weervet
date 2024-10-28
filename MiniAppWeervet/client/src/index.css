@@ -1,48 +1,33 @@
-/* Сброс отступов для body и html */
-body, html {
+body, html, #root {
   margin: 0;
   padding: 0;
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  font-family: Arial, sans-serif;
 }
 
-/* Контейнер приложения */
+.back_button {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  font-size: 0;
+  background-color: purple;
+}
+
 #app {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
-  background-color: #f5f5f5;
-  text-align: center;
+  justify-content: space-between;
 }
 
-/* Контейнер для кнопок внизу */
 .bottom-buttons {
   display: flex;
-  justify-content: space-around;
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  background-color: white;
-  padding: 10px;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+  gap: 10px;
+  padding: 20px;
 }
 
-/* Стили для кнопок */
 .button {
   padding: 10px 20px;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 5px;
   font-size: 16px;
   cursor: pointer;
-  flex-grow: 1;  /* Равномерное распределение кнопок */
-  margin: 0 5px;
-}
-
-.button:hover {
-  background-color: #0056b3;
 }
