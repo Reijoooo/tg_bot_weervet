@@ -1,9 +1,7 @@
 import React from 'react';
 
-const profile = () => {
-    return(
-        <p>Профиль</p>
-    );
+function Profile() {
+    return <h1>Профиль</h1>
 }
 
-export default profile;
+export default Profile;

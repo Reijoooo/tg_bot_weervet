@@ -9,7 +9,7 @@ function FooterButtons() {
     console.log(`Нажата кнопка ${buttonNumber}`);
     if (buttonNumber === 1) {
         console.log('я в if (1)');
-        window.location.assign('/shedule', shedule);
+        window.location.assign('/', shedule);
 
     }
     else if (buttonNumber === 2) {

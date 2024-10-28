@@ -1,7 +1,7 @@
 import React from 'react';
 
-const shedule = () => {
-
+function Shedule() {
+    return <h1>Shedule</h1>
 }
 
-export default shedule;
+export default Shedule;

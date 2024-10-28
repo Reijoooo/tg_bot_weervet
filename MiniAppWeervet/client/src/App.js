@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import FooterButtons from './FooterButtons';
 // import Back_button from './BackButton.js';
-import shedule from './pages/shedule.js';
-import add_pet from './pages/add_pet.js';
-import my_pets from './pages/my_pets.js';
-import profile from './pages/profile.js';
-// import { BrowserRouter as Router, Route, Link, Routes, BrowserRouter } from "react-router-dom";
+import Shedule from './pages/shedule.js';
+import Add_pet from './pages/add_pet.js';
+import My_pets from './pages/my_pets.js';
+import Profile from './pages/profile.js';
+import NotFound from './pages/NotFound.js';
 
 function App() {
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
@@ -32,17 +33,21 @@ function App() {
 
   return (
     <div id="app" style={{ height: `${viewportHeight}px` }}>
-      <h1>Контент приложения</h1>
-      <FooterButtons />
+      
       {/* <Back_button /> */}
-      <BrowserRouter>
+      
+      <div id="work">
+      <Router>
         <Routes>
-            <Route path="/shedule" element={shedule}/>
-            <Route path="/add_pet" element={add_pet}/>
-            <Route path="/my_pets" element={my_pets}/>
-            <Route path="/profile" element={profile}/>
+            <Route path="/" element={<Shedule />}/>
+            <Route path="/add_pet" element={<Add_pet/>}/>
+            <Route path="/my_pets" element={<My_pets />}/>
+            <Route path="/profile" element={<Profile />}/>
+            <Route path="*" element={<NotFound />} />
         </Routes>
-      </BrowserRouter>
+      </Router>
+      </div>
+      <FooterButtons />
     </div>
   );
 }

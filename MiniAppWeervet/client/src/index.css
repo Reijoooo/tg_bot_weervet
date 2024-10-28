@@ -31,3 +31,8 @@ body, html, #root {
   font-size: 16px;
   cursor: pointer;
 }
+
+.work {
+  display: flex;
+  position: absolute;
+}

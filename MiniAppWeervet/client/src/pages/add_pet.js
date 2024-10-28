@@ -1,7 +1,7 @@
 import React from 'react';
 
-const add_pet = () => {
-
+function Add_pet() {
+    return <h1>add_pet</h1>
 }
 
-export default add_pet;
+export default Add_pet;
