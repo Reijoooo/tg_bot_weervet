@@ -1,19 +1,26 @@
-// server/app.js
+// app.js
 
 const express = require('express');
-const cors = require('cors');
+const db = require('./db'); // Импортируем наш файл с подключением к БД
+
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = 5000;
 
-// Использование CORS для разрешения запросов с клиентской части
-app.use(cors());
+// Middleware для работы с JSON
+app.use(express.json());
 
-// Простая маршрутизация
-app.get('/message', (req, res) => {
-  res.json({ message: 'Привет из MiniApp на сервере!' });
+// Маршрут для проверки подключения к базе данных
+app.get('/add_pets', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM users'); // пример запроса к таблице "users"
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Ошибка сервера');
+  }
 });
 
 // Запуск сервера
 app.listen(PORT, () => {
-  console.log(`Сервер запущен на http://localhost:${PORT}`);
+  console.log(`Сервер запущен на порту ${PORT}`);
 });
