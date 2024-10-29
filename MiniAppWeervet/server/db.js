@@ -12,4 +12,4 @@ const pool = new Pool({
 // Функция для выполнения запросов
 const query = (text, params) => pool.query(text, params);
 
-module.exports = { query };
+module.exports = pool;

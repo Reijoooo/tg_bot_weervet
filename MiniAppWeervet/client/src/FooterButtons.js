@@ -8,23 +8,17 @@ function FooterButtons() {
   const handleClick = (buttonNumber) => {
     console.log(`Нажата кнопка ${buttonNumber}`);
     if (buttonNumber === 1) {
-        console.log('я в if (1)');
-        window.location.assign('/', shedule);
-
+        window.location.assign('/shedule', shedule);
     }
     else if (buttonNumber === 2) {
-        console.log('я в if (2)');
         window.location.assign('/add_pet', add_pet);
     }
     else if (buttonNumber === 3) {
-        console.log('я в if (3)');
         window.location.assign('/my_pets', my_pets);
     }
     else if (buttonNumber === 4) {
-        console.log('я в if (4)');
-        window.location.assign('/profile', profile);
+        window.location.assign('/', profile);
     }
-    
   };
 
   return (
